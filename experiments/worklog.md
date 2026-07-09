@@ -75,6 +75,20 @@ Baseline begins with the first execution of `./autoresearch.sh`.
   empty-turn budget. Revert it. The cycle detector is working as intended.
 - Next: Improve observations after actions rather than extending model retries.
 
+### Runs 6-8: Batch-final compact observation — median llm_calls=13 (DISCARD)
+
+- Timestamp: 2026-07-09 16:55-16:58
+- What changed: Successful interaction batches returned a compact final page
+  observation intended to replace the next explicit snapshot.
+- Result: All three runs passed. Model calls were 18, 13, and 12; output tokens
+  were 752, 689, and 473; actions were 14, 15, and 13. The third run had one
+  malformed critical-point call.
+- Insight: The best run used one fewer snapshot, but the median output tokens
+  increased from the baseline's 551 to 689 and behavior remained inconsistent.
+  The added batch complexity is not justified by a stable gain.
+- Next: Revert batch observations. Explore a smaller observation tool or scoped
+  snapshots that the agent invokes explicitly.
+
 ## Key insights
 
 - Unbounded current and historical snapshots dominated input tokens.
