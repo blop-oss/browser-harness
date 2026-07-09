@@ -40,6 +40,20 @@ Baseline begins with the first execution of `./autoresearch.sh`.
 - Next: Revert the prompt experiment and detect repeated action-name/input
   cycles independently of changing output text.
 
+### Run 3: Repeated-cycle detector — llm_calls=15 (DISCARD)
+
+- Timestamp: 2026-07-09 16:47
+- What changed: Added structural action-cycle detection in Blop with normalized
+  volatile snapshot values and a deterministic regression test.
+- Result: Benchmark failed after 15 model calls because the model left a
+  critical point pending; 1,282 output tokens, 20 actions, and 1 tool error.
+- Insight: This stochastic benchmark run doesn't establish an efficiency win.
+  The separate replay test proves the detector stops the exact 3-action cycle
+  from Run 2 before 30 actions, so the safety fix is retained outside the
+  primary performance ranking.
+- Next: Improve empty-turn handling, which is the largest remaining source of
+  model-call variance on successful runs.
+
 ## Key insights
 
 - Unbounded current and historical snapshots dominated input tokens.
