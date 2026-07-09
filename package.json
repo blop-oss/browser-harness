@@ -27,11 +27,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/blopAI/browser-harness.git"
+    "url": "git+https://github.com/blop-oss/browser-harness.git"
   },
-  "homepage": "https://github.com/blopAI/browser-harness#readme",
+  "homepage": "https://github.com/blop-oss/browser-harness#readme",
   "bugs": {
-    "url": "https://github.com/blopAI/browser-harness/issues"
+    "url": "https://github.com/blop-oss/browser-harness/issues"
   },
   "scripts": {
     "build": "tsc",
