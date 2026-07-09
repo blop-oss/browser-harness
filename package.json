@@ -36,9 +36,10 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "bun run build && bun test test/browser test/session",
+    "test": "bun run build && bun test test/browser test/session test/benchmarks",
     "test:browser": "bun test test/browser",
     "test:session": "bun test test/session",
+    "test:benchmarks": "bun test test/benchmarks",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build"
   },

@@ -81,6 +81,7 @@ export function locateTarget(page: Page, target: unknown) {
  */
 function safeLocator(page: Page, selector: string) {
   try {
+    validateSelectorShape(selector);
     return page.locator(selector);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
@@ -90,6 +91,39 @@ function safeLocator(page: Page, selector: string) {
       `a valid CSS selector, a role/name target (e.g. { role: "link", name: "Product name" }), ` +
       `or a text target (e.g. { text: "Preview" }).`,
     );
+  }
+}
+
+function validateSelectorShape(selector: string): void {
+  if (selector.startsWith("//") || selector.startsWith("xpath=")) return;
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+  let brackets = 0;
+  let parentheses = 0;
+
+  for (const character of selector) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === "'" || character === '"') quote = character;
+    else if (character === "[") brackets += 1;
+    else if (character === "]") brackets -= 1;
+    else if (character === "(") parentheses += 1;
+    else if (character === ")") parentheses -= 1;
+    if (brackets < 0 || parentheses < 0) break;
+  }
+
+  if (quote || brackets !== 0 || parentheses !== 0) {
+    throw new Error("unbalanced quotes, brackets, or parentheses");
   }
 }
 

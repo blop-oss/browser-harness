@@ -75,6 +75,16 @@ await browser.close();
 - Test DSL, discovery, reporters, CI orchestration
 - Product prompts and platform upload
 
+## Agent adapters and benchmarks
+
+`NativeToolBridge` is the portability boundary for agent hosts. An adapter maps
+the tool definitions to its agent SDK and dispatches calls to `execute`. The
+harness doesn't depend on a specific model provider or agent runtime.
+
+The live [Mind2Web benchmark](benchmarks/mind2web/README.md) includes an
+agent-neutral runner interface and a Blop adapter. The same interface can host
+Claude Code, Codex, Ollama, or custom agent adapters.
+
 ## Docker session
 
 ```ts

@@ -6,7 +6,7 @@ export function createKeyboardTools(context: BrowserToolContext): NativeToolBrid
   return [
     {
       name: "browser_type",
-      description: "Fill an input by label, placeholder, CSS selector, or XPath selector.",
+      description: "Fill an input. Prefer a structured target such as { label: 'Email' }, { placeholder: 'Search' }, or { role: 'textbox', name: 'Location' }. Do not pass ARIA lines or selector-like shorthand as strings.",
       parameters: {
         type: "object",
         properties: {
@@ -15,7 +15,7 @@ export function createKeyboardTools(context: BrowserToolContext): NativeToolBrid
         },
         required: ["target", "text"],
       },
-      promptSnippet: "- browser_type: Fill text into an input. Prefer labels or placeholders.",
+      promptSnippet: "- browser_type: Fill text using a structured target, such as { label: \"Email\" }, { placeholder: \"Search\" }, or { role: \"textbox\", name: \"Location\" }. Never copy `textbox \"Location\"` from a snapshot as a string.",
       execute: (input) => context.record("browser_type", input, async () => {
         const target = selectorFor(input.target);
         const text = String(input.text ?? "");

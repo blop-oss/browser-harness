@@ -7,13 +7,13 @@ export function createMouseTools(context: BrowserToolContext): NativeToolBridge[
   return [
     {
       name: "browser_click",
-      description: "Click by accessible role/name, visible text, label, CSS selector, or XPath selector.",
+      description: "Click an element. Prefer a structured target such as { role: 'button', name: 'Save' } or { text: 'Continue' }. A string is treated as plain accessible text or a real CSS/XPath selector; do not copy ARIA lines such as `button \"Save\"` into a string.",
       parameters: {
         type: "object",
         properties: { target: targetParameterSchema },
         required: ["target"],
       },
-      promptSnippet: "- browser_click: Click an interactive element. Prefer visible labels or accessible names.",
+      promptSnippet: "- browser_click: Click with a structured target, usually { role: \"button\", name: \"Save\" } or { text: \"Continue\" }. Never copy an ARIA snapshot line like `button \"Save\"` as the target string.",
       execute: (input) => context.record("browser_click", input, async () => {
         const target = selectorFor(input.target);
         const locator = locateTarget(context.page, input.target);

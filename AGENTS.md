@@ -21,6 +21,8 @@ test/
   browser/              # tool behavior tests (real Playwright)
   session/              # Docker container tests
   fixtures/             # local HTTP fixture server helpers
+benchmarks/
+  mind2web/              # agent-neutral live benchmark + host adapters
 ```
 
 ## Design rules
@@ -29,6 +31,8 @@ test/
   browser-script or shell escape hatches without review.
 - Types are framework-agnostic (`HarnessAction`, not Blop-prefixed).
 - Hosts compose: agent loop + prompts + lifecycle policy live outside.
+- Benchmarks define adapter interfaces; they don't add an LLM loop to the
+  published harness package.
 - Prefer fixture servers over external web dependencies in tests.
 - Bun for package scripts/tests; Node ≥20 for consumers.
 
@@ -40,4 +44,3 @@ bun run typecheck
 bun run test
 bun run build
 ```
-

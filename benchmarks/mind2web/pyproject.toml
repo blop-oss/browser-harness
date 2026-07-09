@@ -1,0 +1,21 @@
+[project]
+name = "mind2web-bench"
+version = "0.1.0"
+description = "Download and normalize Mind2Web tasks for browser-harness agents."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "huggingface-hub>=0.25",
+    "pyzipper>=0.3.6",
+    "tqdm>=4.66",
+]
+
+[project.scripts]
+mind2web-bench = "mind2web_bench.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mind2web_bench"]
