@@ -1,1 +1,2 @@
 {"type":"config","name":"mind2web-agent-efficiency","metricName":"llm_calls","metricUnit":"count","bestDirection":"lower"}
+{"run":1,"commit":"4c09ee6","metric":15,"metrics":{"output_tokens":551,"actions":15,"snapshots":5,"total_input_tokens":140809,"peak_input_tokens":14542,"duration_ms":62035,"tool_errors":1,"passed":1},"status":"keep","description":"baseline with capped ARIA snapshots","timestamp":1783639883,"segment":0}

@@ -15,6 +15,18 @@ as hard gates.
 
 Baseline begins with the first execution of `./autoresearch.sh`.
 
+### Run 1: Capped-snapshot baseline — llm_calls=15 (KEEP)
+
+- Timestamp: 2026-07-09 16:31
+- What changed: Established the loop baseline on the current capped-snapshot
+  implementation.
+- Result: Passed, 15 model calls, 551 output tokens, 15 actions, 5 snapshots,
+  140,809 total input tokens, 62,035 ms, and 1 tool error.
+- Insight: The only tool error was `record_critical_point` missing its required
+  `id`; this is an agent protocol error and remains visible.
+- Next: Clarify the critical-point argument contract without repairing omitted
+  arguments.
+
 ## Key insights
 
 - Unbounded current and historical snapshots dominated input tokens.
