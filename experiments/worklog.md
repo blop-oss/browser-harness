@@ -54,6 +54,27 @@ Baseline begins with the first execution of `./autoresearch.sh`.
 - Next: Improve empty-turn handling, which is the largest remaining source of
   model-call variance on successful runs.
 
+### Run 4: Separate empty-turn budget — llm_calls=21 (DISCARD)
+
+- Timestamp: 2026-07-09 16:51
+- What changed: Allowed six truly empty provider turns without exhausting the
+  existing three-turn text-drift budget.
+- Result: Failed after 21 model calls; the cycle detector stopped repeated
+  snapshots at 14 actions rather than allowing an unbounded run.
+- Insight: A larger empty-turn budget did not improve task completion and gave
+  the model more opportunities to enter an action loop.
+- Next: Repeat once to distinguish provider variance from a consistent result.
+
+### Run 5: Repeat empty-turn budget — llm_calls=18 (DISCARD)
+
+- Timestamp: 2026-07-09 16:52
+- What changed: Repeated Run 4 unchanged.
+- Result: Failed after 18 model calls and 25 actions. The cycle detector stopped
+  six repetitions of type/click/snapshot on the same search state.
+- Insight: Two consecutive failures provide no evidence for keeping the larger
+  empty-turn budget. Revert it. The cycle detector is working as intended.
+- Next: Improve observations after actions rather than extending model retries.
+
 ## Key insights
 
 - Unbounded current and historical snapshots dominated input tokens.
