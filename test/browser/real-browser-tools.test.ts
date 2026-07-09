@@ -1,0 +1,64 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { chromium, type Browser } from "playwright";
+import { createBrowserTools, type FinishState } from "../../src/create-tools.js";
+import type { HarnessAction } from "../../src/types.js";
+import { startFixtureServer } from "../fixtures/server.js";
+
+let closeServer: (() => Promise<void>) | undefined;
+let browser: Browser | undefined;
+
+afterEach(async () => {
+  await browser?.close();
+  await closeServer?.();
+  browser = undefined;
+  closeServer = undefined;
+});
+
+describe("real browser agent tools", () => {
+  test("navigates fixture app, reads URL, and controls viewport", async () => {
+    const server = await startFixtureServer([
+      {
+        path: "/",
+        body: `<main><h1>Agent checkout fixture</h1><button>Start checkout</button></main>`,
+      },
+    ]);
+    closeServer = server.close;
+    browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const actions: HarnessAction[] = [];
+    const finishState: FinishState = { status: null, reason: null };
+    const tools = await createBrowserTools({
+      page,
+      testId: "test_real_browser",
+      screenshotDir: ".blop-test-screenshots",
+      actions,
+      screenshots: [],
+      finishState,
+    });
+
+    await tool(tools, "browser_goto").execute({ url: server.url });
+    const url = await tool(tools, "browser_get_url").execute({});
+    await tool(tools, "browser_expect_text").execute({ text: "Agent checkout fixture" });
+    const viewport = await tool(tools, "browser_set_viewport").execute({ width: 390, height: 844 });
+    const currentViewport = await tool(tools, "browser_get_viewport").execute({});
+
+    expect(url.content).toBe(`${server.url}/`);
+    expect(viewport.metadata).toEqual({ width: 390, height: 844 });
+    expect(currentViewport.content).toBe("390x844");
+    expect(page.viewportSize()).toEqual({ width: 390, height: 844 });
+    expect(actions.map((action) => action.name)).toEqual([
+      "browser_goto",
+      "browser_get_url",
+      "browser_expect_text",
+      "browser_set_viewport",
+      "browser_get_viewport",
+    ]);
+  }, 15000);
+});
+
+function tool(tools: Awaited<ReturnType<typeof createBrowserTools>>, name: string) {
+  const found = tools.find((candidate) => candidate.name === name);
+  if (!found) throw new Error(`Missing tool: ${name}`);
+  return found;
+}

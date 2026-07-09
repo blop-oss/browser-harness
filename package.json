@@ -1,0 +1,58 @@
+{
+  "name": "@blopai/browser-harness",
+  "version": "0.1.0",
+  "description": "Playwright browser harness for AI agents: controlled native tools, sessions, screencast, and optional Docker browser sandbox.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "browser",
+    "playwright",
+    "agent",
+    "harness",
+    "e2e",
+    "tools",
+    "cdp",
+    "testing"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/blopAI/browser-harness.git"
+  },
+  "homepage": "https://github.com/blopAI/browser-harness#readme",
+  "bugs": {
+    "url": "https://github.com/blopAI/browser-harness/issues"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun run build && bun test test/browser test/session",
+    "test:browser": "bun test test/browser",
+    "test:session": "bun test test/session",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "dependencies": {
+    "playwright": "^1.59.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.18",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

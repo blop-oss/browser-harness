@@ -1,0 +1,113 @@
+import type { BrowserToolContext, NativeToolBridge } from "./types.js";
+import { selectorFor } from "./locators.js";
+import { assertWithRetry } from "./expect.js";
+
+export function createNavigationTools(context: BrowserToolContext): NativeToolBridge[] {
+  return [
+    {
+      name: "browser_goto",
+      description: "Navigate the browser to a URL.",
+      parameters: {
+        type: "object",
+        properties: { url: { type: "string" } },
+        required: ["url"],
+      },
+      promptSnippet: "- browser_goto: Navigate to a URL in the test browser.",
+      execute: (input) => context.record("browser_goto", input, async () => {
+        let url = selectorFor(input.url);
+        if (context.baseUrl) {
+          url = new URL(url, context.baseUrl).href;
+        }
+        await context.page.goto(url, { waitUntil: "domcontentloaded" });
+        return { content: `Navigated to ${url}`, metadata: { url: context.page.url() } };
+      }),
+    },
+    {
+      name: "browser_get_url",
+      description: "Return the current browser URL.",
+      parameters: { type: "object", properties: {} },
+      promptSnippet: "- browser_get_url: Read the current URL when navigation state matters.",
+      execute: (input) => context.record("browser_get_url", input, async () => {
+        const url = context.page.url();
+        return { content: url, metadata: { url } };
+      }),
+    },
+    {
+      name: "browser_expect_url",
+      description: "Assert that the current URL contains or exactly equals expected text. Retries until timeoutMs, so it tolerates in-flight navigations.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string" },
+          exact: { type: "boolean" },
+          timeoutMs: { type: "number" },
+        },
+        required: ["url"],
+      },
+      promptSnippet: "- browser_expect_url: Assert current URL, using exact=false for contains checks. Auto-retries.",
+      execute: (input) => context.record("browser_expect_url", input, async () => {
+        const expected = String(input.url ?? "");
+        const exact = Boolean(input.exact);
+        const actual = await assertWithRetry(context.page, input, async () => {
+          const url = context.page.url();
+          if (exact ? url !== expected : !url.includes(expected)) {
+            throw new Error(`Expected URL ${exact ? "to equal" : "to contain"} ${expected}, received ${url}`);
+          }
+          return url;
+        });
+        return { content: `URL matched ${expected}`, metadata: { url: actual } };
+      }),
+    },
+    {
+      name: "browser_wait_for_url",
+      description: "Wait for the current URL to contain or exactly equal expected text.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string" },
+          exact: { type: "boolean" },
+          timeoutMs: { type: "number" },
+        },
+        required: ["url"],
+      },
+      promptSnippet: "- browser_wait_for_url: Wait for navigation or redirects to reach an expected URL.",
+      execute: (input) => context.record("browser_wait_for_url", input, async () => {
+        const expected = String(input.url ?? "");
+        const exact = Boolean(input.exact);
+        const timeout = Number(input.timeoutMs ?? 5000);
+        await context.page.waitForURL((url) => exact ? url.href === expected : url.href.includes(expected), { timeout });
+        return { content: `URL reached ${expected}`, metadata: { url: context.page.url() } };
+      }),
+    },
+    {
+      name: "browser_reload",
+      description: "Reload the current page.",
+      parameters: { type: "object", properties: {} },
+      promptSnippet: "- browser_reload: Reload the current page.",
+      execute: (input) => context.record("browser_reload", input, async () => {
+        await context.page.reload({ waitUntil: "domcontentloaded" });
+        return { content: "Reloaded page", metadata: { url: context.page.url() } };
+      }),
+    },
+    {
+      name: "browser_go_back",
+      description: "Navigate back in browser history.",
+      parameters: { type: "object", properties: {} },
+      promptSnippet: "- browser_go_back: Navigate back in browser history.",
+      execute: (input) => context.record("browser_go_back", input, async () => {
+        await context.page.goBack({ waitUntil: "domcontentloaded" });
+        return { content: "Went back", metadata: { url: context.page.url() } };
+      }),
+    },
+    {
+      name: "browser_go_forward",
+      description: "Navigate forward in browser history.",
+      parameters: { type: "object", properties: {} },
+      promptSnippet: "- browser_go_forward: Navigate forward in browser history.",
+      execute: (input) => context.record("browser_go_forward", input, async () => {
+        await context.page.goForward({ waitUntil: "domcontentloaded" });
+        return { content: "Went forward", metadata: { url: context.page.url() } };
+      }),
+    },
+  ];
+}
