@@ -1,0 +1,1 @@
+{"type":"config","name":"mind2web-agent-efficiency","metricName":"llm_calls","metricUnit":"count","bestDirection":"lower"}
