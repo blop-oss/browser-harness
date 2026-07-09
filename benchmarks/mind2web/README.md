@@ -31,6 +31,10 @@ This keeps the benchmark independent of an LLM provider or agent runtime. You
 can implement adapters for Blop, Claude Code, Codex, Ollama, or another host
 without changing the harness or task dataset.
 
+Track benchmark baselines and regressions in
+[`PROGRESS.md`](PROGRESS.md). Record the model, task ID, code version, metrics,
+and environment caveats for every comparison run.
+
 ## Prepare the data
 
 The Python utility downloads Mind2Web from Hugging Face and writes compact task
