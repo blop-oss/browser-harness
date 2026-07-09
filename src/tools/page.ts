@@ -3,18 +3,34 @@ import type { BrowserToolContext, NativeToolBridge } from "./types.js";
 import { locateTarget, selectorFor, targetParameterSchema } from "./locators.js";
 import type { Page } from "playwright";
 
+const DEFAULT_ARIA_SNAPSHOT_CHARS = 12_000;
+const MIN_ARIA_SNAPSHOT_CHARS = 1_000;
+const MAX_ARIA_SNAPSHOT_CHARS = 50_000;
+
 export function createPageTools(context: BrowserToolContext): NativeToolBridge[] {
   return [
     {
       name: "browser_snapshot",
-      description: "Return the current URL, page title, visible text, accessibility snapshot, focused element, and viewport.",
-      parameters: { type: "object", properties: {} },
-      promptSnippet: "- browser_snapshot: Inspect URL, title, visible text, ARIA roles/labels, focus, and viewport before deciding the next action.",
+      description: "Return the current URL, page title, visible text, accessibility snapshot, focused element, and viewport. The ARIA tree is capped by default to control model context; increase maxAriaChars only when the required element is missing.",
+      parameters: {
+        type: "object",
+        properties: {
+          maxAriaChars: {
+            type: "number",
+            description: `ARIA character budget (${MIN_ARIA_SNAPSHOT_CHARS}-${MAX_ARIA_SNAPSHOT_CHARS}, default ${DEFAULT_ARIA_SNAPSHOT_CHARS}).`,
+          },
+        },
+      },
+      promptSnippet: "- browser_snapshot: Inspect URL, title, visible text, ARIA roles/labels, focus, and viewport before deciding the next action. The ARIA tree is capped; increase maxAriaChars only if the needed element is missing, or use browser_extract for focused data.",
       execute: (input) => context.record("browser_snapshot", input, async () => {
         const title = await context.page.title();
         const bodyText = await context.page.locator("body").innerText({ timeout: 5000 }).catch(() => "");
         const excerpt = bodyText.replace(/\s+/g, " ").trim().slice(0, 4000);
-        const ariaSnapshot = await readAriaSnapshot(context.page);
+        const maxAriaChars = clampAriaBudget(input.maxAriaChars);
+        const ariaSnapshot = truncateSnapshot(
+          await readAriaSnapshot(context.page),
+          maxAriaChars,
+        );
         const pageWithEvaluate = context.page as typeof context.page & { evaluate?: typeof context.page.evaluate };
         const focusedElement = pageWithEvaluate.evaluate ? await pageWithEvaluate.evaluate(() => {
           const element = document.activeElement;
@@ -33,7 +49,13 @@ export function createPageTools(context: BrowserToolContext): NativeToolBridge[]
         const snapshot = { url: context.page.url(), title, text: excerpt, ariaSnapshot, focusedElement, viewport };
         return {
           content: JSON.stringify(snapshot, null, 2),
-          metadata: { url: context.page.url(), title, hasAriaSnapshot: Boolean(ariaSnapshot), viewport: viewport ?? null },
+          metadata: {
+            url: context.page.url(),
+            title,
+            hasAriaSnapshot: Boolean(ariaSnapshot),
+            ariaSnapshotTruncated: ariaSnapshot.endsWith("\n...[ARIA snapshot truncated]"),
+            viewport: viewport ?? null,
+          },
         };
       }),
     },
@@ -121,4 +143,15 @@ async function readAriaSnapshot(page: Page) {
   const locatorWithSnapshot = body as typeof body & { ariaSnapshot?: (options?: { timeout?: number }) => Promise<string> };
   if (!locatorWithSnapshot.ariaSnapshot) return "";
   return locatorWithSnapshot.ariaSnapshot({ timeout: 5000 }).catch(() => "");
+}
+
+function clampAriaBudget(value: unknown): number {
+  const requested = Number(value ?? DEFAULT_ARIA_SNAPSHOT_CHARS);
+  if (!Number.isFinite(requested)) return DEFAULT_ARIA_SNAPSHOT_CHARS;
+  return Math.min(MAX_ARIA_SNAPSHOT_CHARS, Math.max(MIN_ARIA_SNAPSHOT_CHARS, requested));
+}
+
+function truncateSnapshot(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, maxChars)}\n...[ARIA snapshot truncated]`;
 }

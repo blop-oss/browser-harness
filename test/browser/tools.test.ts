@@ -36,6 +36,31 @@ describe("agent browser tools", () => {
     expect(actions[0].name).toBe("browser_snapshot");
   });
 
+  test("snapshot caps large ARIA trees and reports truncation", async () => {
+    const temp = await createTempDir();
+    cleanup = temp.cleanup;
+    const page = createFakePage();
+    page.locator = () => ({
+      innerText: async () => "Example App",
+      ariaSnapshot: async () => "x".repeat(5_000),
+    });
+    const tools = await createBrowserTools({
+      page: page as never,
+      testId: "snapshot-budget",
+      screenshotDir: temp.dir,
+      actions: [],
+      screenshots: [],
+      finishState: { status: null, reason: null },
+    });
+
+    const snapshot = tools.find((tool) => tool.name === "browser_snapshot");
+    const result = await snapshot?.execute({ maxAriaChars: 1_000 });
+    const content = JSON.parse(result?.content ?? "{}") as { ariaSnapshot?: string };
+    expect(content.ariaSnapshot?.length).toBeLessThan(1_100);
+    expect(content.ariaSnapshot).toEndWith("...[ARIA snapshot truncated]");
+    expect(result?.metadata?.ariaSnapshotTruncated).toBe(true);
+  });
+
   test("finish_test records agent status and reason", async () => {
     const temp = await createTempDir();
     cleanup = temp.cleanup;
