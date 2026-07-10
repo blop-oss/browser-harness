@@ -177,3 +177,9 @@ location and forecast view.
   increases output/context. Revert the guidance.
 - Next: Keep failed-action recording, update the benchmark ledger, and stop
   prompt-level tuning for this model/task pair.
+
+## Segment 4: Weather.com health forecasts
+
+Task ID: `8cfb8d75-8076-4f0a-a7e0-4f0c5a94aaae`. Find the cold and flu forecast
+and today's air quality in Champaign, IL. This tests whether the agent can track
+and prove two distinct outcomes without duplicate exploration.
