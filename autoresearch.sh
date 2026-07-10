@@ -13,8 +13,8 @@ bun run typecheck >/dev/null
 rm -rf "$REPORT"
 
 export MIND2WEB_TASKS_PATH="$TASKS"
-export BENCH_WEBSITE="weather"
-export BENCH_LIMIT="1"
+export BENCH_WEBSITE="${BENCH_WEBSITE:-weather}"
+export BENCH_LIMIT="${BENCH_LIMIT:-1}"
 export BLOP_AGENT_PROVIDER="ollama"
 export BLOP_AGENT_MODEL="gemma4:31b-cloud"
 export BLOP_AGENT_BASE_URL="http://localhost:11434/v1"

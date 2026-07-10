@@ -103,3 +103,9 @@ Baseline begins with the first execution of `./autoresearch.sh`.
 - Compact post-action observations.
 - Batch-final observations.
 - Empty-turn handling that avoids runner-level resumes.
+
+## Segment 1: Apartments search and filters
+
+Seattle optimization reached diminishing returns after eight experiments. The
+new segment targets the first `apartments` task with the same model, browser,
+strictness rules, and metrics.

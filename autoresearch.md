@@ -66,6 +66,14 @@ The script provides defaults matching the current sibling-repository layout.
   neither beat the best default run reliably.
 - **Rejected:** Stronger batching/critical-point prompt rules. One run regressed
   to 22 model calls and 16 actions, so the prompt changes were reverted.
+- **Kept safety fix:** Structural cycle detection stops repeated dynamic-page
+  loops. A failed experiment exposed an 83-cycle runaway; the new guard stopped
+  equivalent loops after six repetitions in deterministic and live runs.
+- **Rejected:** Six-turn empty-response budget. Two consecutive live runs
+  entered action cycles and failed.
+- **Rejected:** Automatic compact observations after successful batches. Three
+  runs passed (18, 13, and 12 model calls), but median output increased and the
+  reduction in snapshots was inconsistent.
 
 ## Next ideas
 
@@ -75,3 +83,9 @@ The script provides defaults matching the current sibling-repository layout.
 - Distinguish empty provider turns from meaningful text-only turns and retry
   them without forcing a full runner resume.
 - Evaluate snapshot sections or scoped snapshots instead of one flat ARIA tree.
+
+## Current task
+
+Seattle hourly weather has reached diminishing returns. The next segment uses
+the first `apartments` task to test search and filter interactions on a
+different live site.
