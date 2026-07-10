@@ -73,7 +73,9 @@ tool-argument repair.
 | Date | Version | Status | Duration | Actions | Tool errors | Nudges | LLM calls | Peak input | Total input | Output | Notes |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | July 9, 2026 | Before history compaction | Pass | 193,970 ms | 14 | 5 | 2 | 23 | 64,438 | 853,858 | 963 | Repeated full snapshots accumulated in history; several ARIA lines were used as malformed selectors. |
-| July 9, 2026 | `4aad09c` + `b4dc8e4` | Pass | 56,814 ms | 14 | 0 | 2 | 13 | 20,486 | 167,106 | Stale snapshots compacted; structured-target instructions clarified; strict malformed-action behavior retained. |
+| July 9, 2026 | `4aad09c` + `b4dc8e4` | Pass | 56,814 ms | 14 | 0 | 2 | 13 | 20,486 | 167,106 | 587 | Stale snapshots compacted; structured-target instructions clarified; strict malformed-action behavior retained. |
+| July 9, 2026 | ARIA cap, run 1 (`ff3e2fe`) | Pass | 45,227 ms | 14 | 0 | 0 | 11 | 14,400 | 107,955 | 490 | Default ARIA payload capped at 12,000 characters. |
+| July 9, 2026 | ARIA cap, run 2 (`ff3e2fe`) | Pass | 92,203 ms | 14 | 0 | 5 | 20 | 14,689 | 220,398 | 1,083 | Same code; five empty provider turns demonstrate model variance. |
 
 Initial change:
 
@@ -83,8 +85,35 @@ Initial change:
 - Total input tokens: `-80.4%`
 - Tool errors: `5` to `0`
 
-These figures come from one run per version. They demonstrate the direction of
-the change but aren't a stable performance distribution yet.
+Peak input remained near 14.4K-14.7K across both capped-snapshot runs, down from
+20.5K before the cap. Calls, output, and duration still vary with empty model
+turns, so compare repeated runs rather than a single best result.
+
+## Reliability improvements
+
+Performance work also exposed failure modes that need hard safety boundaries:
+
+- `7597447` detects short repeated action cycles using normalized page-state
+  fingerprints. It stopped live 83-cycle and six-cycle search loops.
+- `850b88f` records failed browser tools in the action trail, so reports and the
+  cycle detector can observe repeated failures.
+- `69b63bc` exposes provider reasoning effort as an explicit option. `low` and
+  `none` passed but did not outperform the default reliably, so neither is a
+  benchmark default.
+
+## Rejected experiments
+
+These experiments did not produce a stable improvement:
+
+| Experiment | Outcome | Decision |
+| --- | --- | --- |
+| Stronger batching and critical-point prompt rules | 22 calls, 16 actions, 1,173 output tokens. | Reverted. |
+| Six-turn empty-response budget | Two consecutive failed runs entered action cycles. | Reverted. |
+| Automatic compact observations after batches | Three passes; median 13 calls, but median output increased to 689. | Reverted. |
+| Exact-target prompt and strict-mode recovery prose | Slow passes and a cycle-guarded failure. | Reverted. |
+
+Detailed results and rejected-run metrics live in `autoresearch.jsonl` and
+`experiments/worklog.md` at the repository root.
 
 ## Run command
 
@@ -96,6 +125,7 @@ cd benchmarks/mind2web
 export MIND2WEB_TASKS_PATH=/path/to/tasks.json
 export BENCH_WEBSITE=weather
 export BENCH_LIMIT=1
+export BENCH_TASK_ID=3cad7a9a-41bd-4c0a-9fd2-0cc34eb8e836
 export BLOP_AGENT_PROVIDER=ollama
 export BLOP_AGENT_MODEL=gemma4:31b-cloud
 export BLOP_AGENT_BASE_URL=http://localhost:11434/v1
