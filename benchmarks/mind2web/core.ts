@@ -21,6 +21,7 @@ export type Mind2WebTask = {
 };
 
 export type Mind2WebFilters = {
+  id?: string;
   split?: string;
   website?: string;
   limit?: number;
@@ -55,6 +56,7 @@ export function loadMind2WebTasks(
   const website = filters.website?.trim().toLowerCase();
   let tasks = all.filter((task) => task.task && task.start_url);
 
+  if (filters.id) tasks = tasks.filter((task) => task.id === filters.id);
   if (filters.split) tasks = tasks.filter((task) => task.split === filters.split);
   if (website) {
     tasks = tasks.filter((task) => task.website.toLowerCase().includes(website));

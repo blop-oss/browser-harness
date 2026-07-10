@@ -123,3 +123,16 @@ strictness rules, and metrics.
 
 Task: Find the weather radar map for Miami. The task exercises location search,
 result selection, navigation, and deterministic visual/page evidence.
+
+### Run 10: AccuWeather baseline — environment blocked (CRASH)
+
+- Result: Failed after 4 model calls because the site consistently returned
+  `ERR_HTTP2_PROTOCOL_ERROR`; two navigation tools failed.
+- Insight: This environment cannot produce a useful AccuWeather agent signal.
+- Next: Add exact task-ID filtering and select the second Weather.com task.
+
+## Segment 3: Weather.com 10-day forecast
+
+Task ID: `7480540d-0519-440b-b22e-fa7badf55822`. Find the 10-day forecast for
+ZIP code 90028. This retains an accessible site while changing the required
+location and forecast view.

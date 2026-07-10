@@ -72,6 +72,7 @@ The adapter supports these filters:
 | Variable | Effect |
 | --- | --- |
 | `MIND2WEB_TASKS_PATH` | Path to normalized `tasks.json`. |
+| `BENCH_TASK_ID` | Exact Mind2Web task ID. |
 | `BENCH_LIMIT` | Maximum number of tasks. |
 | `BENCH_SPLIT` | Exact split name. |
 | `BENCH_WEBSITE` | Case-insensitive website substring. |

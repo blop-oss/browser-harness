@@ -25,6 +25,8 @@ describe("Mind2Web benchmark", () => {
         .toHaveLength(1);
       expect(loadMind2WebTasks(tasksPath, { split: "test_domain" })[0].id)
         .toBe("two");
+      expect(loadMind2WebTasks(tasksPath, { id: "one" })[0].website)
+        .toBe("weather");
     } finally {
       await temp.cleanup();
     }

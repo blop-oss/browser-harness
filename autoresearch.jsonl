@@ -10,3 +10,5 @@
 {"type":"config","name":"mind2web-apartments-efficiency","metricName":"llm_calls","metricUnit":"count","bestDirection":"lower"}
 {"run":9,"commit":"3b19490","metric":0,"metrics":{"output_tokens":118,"actions":3,"snapshots":1,"total_input_tokens":20298,"peak_input_tokens":7087,"duration_ms":36141,"tool_errors":0,"passed":0},"status":"crash","description":"Apartments baseline blocked by deterministic Akamai 403","timestamp":1783641680,"segment":1}
 {"type":"config","name":"mind2web-accuweather-efficiency","metricName":"llm_calls","metricUnit":"count","bestDirection":"lower"}
+{"run":10,"commit":"8fd6258","metric":0,"metrics":{"output_tokens":128,"actions":2,"snapshots":0,"total_input_tokens":26775,"peak_input_tokens":6791,"duration_ms":8263,"tool_errors":2,"passed":0},"status":"crash","description":"AccuWeather baseline blocked by HTTP/2 protocol errors","timestamp":1783641750,"segment":2}
+{"type":"config","name":"mind2web-weather-10day-efficiency","metricName":"llm_calls","metricUnit":"count","bestDirection":"lower"}

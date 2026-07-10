@@ -12,6 +12,7 @@ const tasksPath = process.env.MIND2WEB_TASKS_PATH
   : join(here, "..", "data", "tasks.json");
 
 const filters: Mind2WebFilters = {
+  id: process.env.BENCH_TASK_ID?.trim(),
   split: process.env.BENCH_SPLIT?.trim(),
   website: process.env.BENCH_WEBSITE?.trim(),
   limit: process.env.BENCH_LIMIT ? Number(process.env.BENCH_LIMIT) : undefined,
