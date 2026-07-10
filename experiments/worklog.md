@@ -109,3 +109,17 @@ Baseline begins with the first execution of `./autoresearch.sh`.
 Seattle optimization reached diminishing returns after eight experiments. The
 new segment targets the first `apartments` task with the same model, browser,
 strictness rules, and metrics.
+
+### Run 9: Apartments baseline — environment blocked (CRASH)
+
+- Timestamp: 2026-07-09 17:01
+- Result: Failed after 3 model calls because Apartments.com returned a
+  deterministic Akamai 403 Access Denied page.
+- Insight: This is an environment/site blocker, not an agent-quality result.
+- Next: Move to the first AccuWeather task, which exercises location search and
+  radar navigation.
+
+## Segment 2: AccuWeather Miami radar
+
+Task: Find the weather radar map for Miami. The task exercises location search,
+result selection, navigation, and deterministic visual/page evidence.
