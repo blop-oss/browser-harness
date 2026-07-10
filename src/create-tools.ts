@@ -44,7 +44,22 @@ export async function createBrowserTools(
     },
     getActivePage: () => ref.page,
     record: async (name, input, fn): NativeToolResult => {
-      const result = await fn();
+      let result: Awaited<NativeToolResult>;
+      try {
+        result = await fn();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const action: HarnessAction = {
+          name,
+          input,
+          output: message,
+          metadata: { error: message },
+          timestamp: new Date().toISOString(),
+        };
+        options.actions.push(action);
+        options.onAction?.(action);
+        throw error;
+      }
       const action: HarnessAction = {
         name,
         input,

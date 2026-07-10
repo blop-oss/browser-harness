@@ -136,3 +136,44 @@ result selection, navigation, and deterministic visual/page evidence.
 Task ID: `7480540d-0519-440b-b22e-fa7badf55822`. Find the 10-day forecast for
 ZIP code 90028. This retains an accessible site while changing the required
 location and forecast view.
+
+### Run 11: 10-day forecast baseline — llm_calls=15 (KEEP)
+
+- Timestamp: 2026-07-09 17:04
+- Result: Passed with 15 model calls, 718 output tokens, 11 actions, 3
+  snapshots, 137,121 total input tokens, and 1 tool error.
+- Insight: The model requested `maxAriaChars: 20000` for every snapshot and an
+  inexact `10 Day` role/name target collided with `Next 10 Days`.
+- Next: Hide the snapshot expansion knob from the model-facing schema and
+  clarify `exact: true` for ambiguous accessible names.
+
+### Run 12: Fixed snapshot schema and exact-target prompt — llm_calls=25 (DISCARD)
+
+- Result: Passed, but used 25 model calls, 1,164 output tokens, and repeated the
+  same ambiguous `10 Day` click eight times.
+- Insight: Peak input fell from 16,988 to 14,661 tokens, so the fixed snapshot
+  budget worked. The exact-target prompt did not. More importantly, failed
+  tools are not recorded as actions, leaving the runner's cycle guard blind.
+- Next: Revert the exact-target prompt, retain the fixed snapshot budget, and
+  record failed actions so repeated failures become observable.
+
+### Runs 13-15: Fixed schema and failed-action recording — median llm_calls=24 (DISCARD)
+
+- Result: All passed. Calls were 25, 12, and 24; output tokens were 1,129, 453,
+  and 1,740. Peak input stayed bounded between 14,587 and 15,338 tokens.
+- Insight: Hiding snapshot expansion stabilized peak context but did not improve
+  calls or output reliably. Recording failed actions is retained because it
+  makes reports and cycle detection honest; the schema restriction is reverted.
+- Next: Give strict-mode ambiguity failures concise recovery guidance instead
+  of relying on a long Playwright error and full ARIA context.
+
+### Runs 16-17: Ambiguity recovery guidance — llm_calls=21/27 (DISCARD)
+
+- What changed: Added concise `exact: true`/unique-selector recovery text to
+  strict-mode failures.
+- Result: One slow pass and one cycle-guarded failure. The model still retried
+  ambiguous links and later entered a repeated snapshot cycle.
+- Insight: More prompt/error prose is not improving this model reliably and
+  increases output/context. Revert the guidance.
+- Next: Keep failed-action recording, update the benchmark ledger, and stop
+  prompt-level tuning for this model/task pair.

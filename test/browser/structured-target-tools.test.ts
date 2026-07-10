@@ -36,6 +36,7 @@ describe("structured browser targets", () => {
 
     try {
       await expect(tool(fixture.tools, "browser_click").execute({ target: { role: "button", name: "Duplicate" } })).rejects.toThrow("strict mode violation");
+      expect(fixture.actions.at(-1)?.metadata?.error).toContain("strict mode violation");
       await tool(fixture.tools, "browser_click").execute({ target: { role: "button", name: "Duplicate", first: true } });
     } finally {
       await fixture.cleanup();
