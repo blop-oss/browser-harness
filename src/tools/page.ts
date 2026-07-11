@@ -27,12 +27,17 @@ export function createPageTools(context: BrowserToolContext): NativeToolBridge[]
         const title = await context.page.title();
         const bodyText = await context.page.locator("body").innerText({ timeout: 5000 }).catch(() => "");
         const excerpt = bodyText.replace(/\s+/g, " ").trim().slice(0, 4000);
-        const maxAriaChars = clampAriaBudget(input.maxAriaChars);
+        const interactiveReferences = await collectInteractiveReferences(context.page)
+          .catch(() => ({ elements: [], total: 0, omitted: 0 }));
+        const interactiveElements = interactiveReferences.elements;
+        const maxAriaChars = Math.max(
+          MIN_ARIA_SNAPSHOT_CHARS,
+          clampAriaBudget(input.maxAriaChars) - JSON.stringify(interactiveReferences).length,
+        );
         const ariaSnapshot = truncateSnapshot(
           await readAriaSnapshot(context.page),
           maxAriaChars,
         );
-        const interactiveElements = await collectInteractiveReferences(context.page).catch(() => []);
         const pageWithEvaluate = context.page as typeof context.page & { evaluate?: typeof context.page.evaluate };
         const focusedElement = pageWithEvaluate.evaluate ? await pageWithEvaluate.evaluate(() => {
           const element = document.activeElement;
@@ -48,14 +53,25 @@ export function createPageTools(context: BrowserToolContext): NativeToolBridge[]
         }).catch(() => null) : null;
         const pageWithViewport = context.page as typeof context.page & { viewportSize?: typeof context.page.viewportSize };
         const viewport = pageWithViewport.viewportSize ? pageWithViewport.viewportSize() : null;
-        const snapshot = { url: context.page.url(), title, text: excerpt, ariaSnapshot, interactiveElements, focusedElement, viewport };
+        const snapshot = {
+          url: context.page.url(),
+          title,
+          text: excerpt,
+          ariaSnapshot,
+          interactiveElements,
+          omittedInteractiveElements: interactiveReferences.omitted,
+          focusedElement,
+          viewport,
+        };
         return {
           content: JSON.stringify(snapshot, null, 2),
           metadata: {
             url: context.page.url(),
             title,
             hasAriaSnapshot: Boolean(ariaSnapshot),
-            interactiveElementCount: interactiveElements.length,
+            interactiveElementCount: interactiveReferences.total,
+            exposedInteractiveElementCount: interactiveElements.length,
+            omittedInteractiveElementCount: interactiveReferences.omitted,
             ariaSnapshotTruncated: ariaSnapshot.endsWith("\n...[ARIA snapshot truncated]"),
             viewport: viewport ?? null,
           },

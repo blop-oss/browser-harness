@@ -14,9 +14,16 @@ export type InteractiveReference = {
   states?: string[];
 };
 
-const states = new WeakMap<Page, ReferenceState>();
+export type InteractiveReferences = {
+  elements: InteractiveReference[];
+  total: number;
+  omitted: number;
+};
 
-export async function collectInteractiveReferences(page: Page): Promise<InteractiveReference[]> {
+const states = new WeakMap<Page, ReferenceState>();
+const MAX_EXPOSED_REFERENCES = 50;
+
+export async function collectInteractiveReferences(page: Page): Promise<InteractiveReferences> {
   const previous = states.get(page);
   const snapshot = (previous?.snapshot ?? 0) + 1;
   const attribute = previous?.attribute ?? `data-blop-ref-${Math.random().toString(36).slice(2, 10)}`;
@@ -57,7 +64,10 @@ export async function collectInteractiveReferences(page: Page): Promise<Interact
       const labels = "labels" in element
         ? Array.from((element as HTMLInputElement).labels ?? []).map((label) => label.innerText.trim()).filter(Boolean).join(" ")
         : "";
+      const labelledBy = (element.getAttribute("aria-labelledby") ?? "").split(/\s+/).filter(Boolean)
+        .map((id) => document.getElementById(id)?.textContent?.trim() ?? "").filter(Boolean).join(" ");
       const name = (element.getAttribute("aria-label")
+        || labelledBy
         || labels
         || element.getAttribute("alt")
         || element.getAttribute("title")
@@ -73,6 +83,14 @@ export async function collectInteractiveReferences(page: Page): Promise<Interact
       if (input?.checked || element.getAttribute("aria-checked") === "true") state.push("checked");
       if (element.getAttribute("aria-expanded") === "true") state.push("expanded");
       if (element.getAttribute("aria-selected") === "true") state.push("selected");
+      const inViewport = rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth;
+      if (inViewport) {
+        state.push("in-viewport");
+        const x = Math.max(0, Math.min(innerWidth - 1, rect.left + rect.width / 2));
+        const y = Math.max(0, Math.min(innerHeight - 1, rect.top + rect.height / 2));
+        const top = document.elementFromPoint(x, y);
+        if (top && top !== element && !element.contains(top)) state.push("occluded");
+      }
       const value = "value" in element ? String((element as HTMLInputElement).value) : undefined;
       return [{ ref, tag, role, name, ...(value ? { value: value.slice(0, 200) } : {}), ...(state.length ? { states: state } : {}) }];
     });
@@ -83,7 +101,10 @@ export async function collectInteractiveReferences(page: Page): Promise<Interact
     snapshot,
     refs: new Map(entries.map((entry) => [entry.ref, { tag: entry.tag, role: entry.role, name: entry.name }])),
   });
-  return entries.map(({ tag: _tag, ...entry }) => entry);
+  const named = entries.filter((entry) => entry.name || entry.states?.includes("focused"));
+  named.sort((left, right) => referencePriority(right) - referencePriority(left));
+  const exposed = named.slice(0, MAX_EXPOSED_REFERENCES).map(({ tag: _tag, ...entry }) => entry);
+  return { elements: exposed, total: named.length, omitted: Math.max(0, named.length - exposed.length) };
 }
 
 export function locateReference(page: Page, ref: string): Locator {
@@ -94,4 +115,12 @@ export function locateReference(page: Page, ref: string): Locator {
   }
 
   return page.locator(`${expected.tag}[${state.attribute}=${JSON.stringify(ref)}]`);
+}
+
+function referencePriority(entry: { states?: string[] }) {
+  const current = entry.states ?? [];
+  return (current.includes("focused") ? 8 : 0)
+    + (current.includes("in-viewport") ? 4 : 0)
+    - (current.includes("occluded") ? 2 : 0)
+    - (current.includes("disabled") ? 1 : 0);
 }
