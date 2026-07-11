@@ -1,6 +1,8 @@
 import type { Page } from "playwright";
+import { locateReference } from "./references.js";
 
 export type BrowserTarget = string | {
+  ref?: string;
   selector?: string;
   text?: string;
   label?: string;
@@ -18,6 +20,7 @@ export const targetParameterSchema = {
     {
       type: "object",
       properties: {
+        ref: { type: "string", description: "Snapshot-scoped element reference returned by browser_snapshot." },
         selector: { type: "string" },
         text: { type: "string" },
         label: { type: "string" },
@@ -56,7 +59,8 @@ export function locateTarget(page: Page, target: unknown) {
   if (typeof target === "object" && target) {
     const structured = target as Exclude<BrowserTarget, string>;
     const exact = Boolean(structured.exact);
-    const locator = structured.selector ? safeLocator(page, structured.selector)
+    const locator = structured.ref ? locateReference(page, structured.ref)
+      : structured.selector ? safeLocator(page, structured.selector)
       : structured.testId ? page.getByTestId(structured.testId)
       : structured.label ? page.getByLabel(structured.label, { exact })
       : structured.placeholder ? page.getByPlaceholder(structured.placeholder, { exact })

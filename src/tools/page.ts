@@ -2,6 +2,7 @@ import { basename, join } from "node:path";
 import type { BrowserToolContext, NativeToolBridge } from "./types.js";
 import { locateTarget, selectorFor, targetParameterSchema } from "./locators.js";
 import type { Page } from "playwright";
+import { collectInteractiveReferences } from "./references.js";
 
 const DEFAULT_ARIA_SNAPSHOT_CHARS = 12_000;
 const MIN_ARIA_SNAPSHOT_CHARS = 1_000;
@@ -11,7 +12,7 @@ export function createPageTools(context: BrowserToolContext): NativeToolBridge[]
   return [
     {
       name: "browser_snapshot",
-      description: "Return the current URL, page title, visible text, accessibility snapshot, focused element, and viewport. The ARIA tree is capped by default to control model context; increase maxAriaChars only when the required element is missing.",
+      description: "Return the current URL, page title, visible text, accessibility snapshot, snapshot-scoped references for visible interactive elements, focused element, and viewport. Prefer { ref: 's1:e1' } targets from the latest snapshot. The ARIA tree is capped by default to control model context; increase maxAriaChars only when the required element is missing.",
       parameters: {
         type: "object",
         properties: {
@@ -21,7 +22,7 @@ export function createPageTools(context: BrowserToolContext): NativeToolBridge[]
           },
         },
       },
-      promptSnippet: "- browser_snapshot: Inspect URL, title, visible text, ARIA roles/labels, focus, and viewport before deciding the next action. The ARIA tree is capped; increase maxAriaChars only if the needed element is missing, or use browser_extract for focused data.",
+      promptSnippet: "- browser_snapshot: Inspect URL, title, visible text, ARIA roles/labels, interactive element references, focus, and viewport before deciding the next action. Prefer a current { ref: \"s1:e1\" } target when available. References expire after the next snapshot. The ARIA tree is capped; increase maxAriaChars only if the needed element is missing, or use browser_extract for focused data.",
       execute: (input) => context.record("browser_snapshot", input, async () => {
         const title = await context.page.title();
         const bodyText = await context.page.locator("body").innerText({ timeout: 5000 }).catch(() => "");
@@ -31,6 +32,7 @@ export function createPageTools(context: BrowserToolContext): NativeToolBridge[]
           await readAriaSnapshot(context.page),
           maxAriaChars,
         );
+        const interactiveElements = await collectInteractiveReferences(context.page).catch(() => []);
         const pageWithEvaluate = context.page as typeof context.page & { evaluate?: typeof context.page.evaluate };
         const focusedElement = pageWithEvaluate.evaluate ? await pageWithEvaluate.evaluate(() => {
           const element = document.activeElement;
@@ -46,13 +48,14 @@ export function createPageTools(context: BrowserToolContext): NativeToolBridge[]
         }).catch(() => null) : null;
         const pageWithViewport = context.page as typeof context.page & { viewportSize?: typeof context.page.viewportSize };
         const viewport = pageWithViewport.viewportSize ? pageWithViewport.viewportSize() : null;
-        const snapshot = { url: context.page.url(), title, text: excerpt, ariaSnapshot, focusedElement, viewport };
+        const snapshot = { url: context.page.url(), title, text: excerpt, ariaSnapshot, interactiveElements, focusedElement, viewport };
         return {
           content: JSON.stringify(snapshot, null, 2),
           metadata: {
             url: context.page.url(),
             title,
             hasAriaSnapshot: Boolean(ariaSnapshot),
+            interactiveElementCount: interactiveElements.length,
             ariaSnapshotTruncated: ariaSnapshot.endsWith("\n...[ARIA snapshot truncated]"),
             viewport: viewport ?? null,
           },

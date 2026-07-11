@@ -42,4 +42,34 @@ describe("structured browser targets", () => {
       await fixture.cleanup();
     }
   }, 15000);
+
+  test("uses snapshot-scoped element references and rejects old snapshots", async () => {
+    const fixture = await setupToolPage(`
+      <main>
+        <button data-position="first" onclick="this.dataset.clicked='true'">Save</button>
+        <button data-position="second" onclick="this.dataset.clicked='true'">Save</button>
+      </main>
+    `);
+
+    try {
+      const first = await tool(fixture.tools, "browser_snapshot").execute({});
+      const firstSnapshot = JSON.parse(first.content) as {
+        interactiveElements: { ref: string; role: string; name: string }[];
+      };
+      const saves = firstSnapshot.interactiveElements.filter((element) => element.role === "button" && element.name === "Save");
+      const save = saves[1];
+      expect(saves).toHaveLength(2);
+      expect(save?.ref).toMatch(/^s1:e\d+$/);
+
+      await tool(fixture.tools, "browser_click").execute({ target: { ref: save?.ref } });
+      expect(await fixture.page.locator("[data-position='first']").getAttribute("data-clicked")).toBeNull();
+      expect(await fixture.page.locator("[data-position='second']").getAttribute("data-clicked")).toBe("true");
+
+      await tool(fixture.tools, "browser_snapshot").execute({});
+      await expect(tool(fixture.tools, "browser_click").execute({ target: { ref: save?.ref } }))
+        .rejects.toThrow("Unknown or stale element reference");
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 15000);
 });
