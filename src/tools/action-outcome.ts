@@ -77,11 +77,6 @@ export function actionStateFingerprint(state: ActionState | null) {
   return [state.url, state.title, state.focus, state.dialogs, state.alerts, state.contentHash].join("|");
 }
 
-export function stableActionStateFingerprint(state: ActionState | null) {
-  if (!state) return "unavailable";
-  return [state.url, state.title, state.focus, state.dialogs, state.alerts].join("|");
-}
-
 export function describeActionOutcome(before: ActionState | null, after: ActionState | null) {
   if (!before || !after) return null;
   const changes: string[] = [];

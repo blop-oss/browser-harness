@@ -161,17 +161,6 @@ export function validateReferenceAction(page: Page, target: unknown, toolName: s
   );
 }
 
-export function semanticActionSignature(page: Page, target: unknown, toolName: string) {
-  if (!target || typeof target !== "object" || !("ref" in target)) {
-    return `${toolName}:${JSON.stringify(target)}`;
-  }
-  const ref = String((target as { ref?: unknown }).ref ?? "");
-  const entry = states.get(page)?.refs.get(ref)?.entry;
-  return entry
-    ? `${toolName}:${entry.frame ?? "main"}:${entry.role}:${entry.name}`
-    : `${toolName}:${ref}`;
-}
-
 export async function describeLocatorBlocker(page: Page, locator: Locator) {
   const blocker = await locator.evaluate((element) => {
     if (!(element instanceof HTMLElement)) return null;
@@ -190,20 +179,10 @@ export async function describeLocatorBlocker(page: Page, locator: Locator) {
       const y = Math.max(0, Math.min(innerHeight - 1, rawY));
       const top = document.elementFromPoint(x, y);
       if (!top || top === element || element.contains(top)) return [];
-      const overlay = top.closest("iframe,dialog,[role='dialog'],[aria-modal='true']") ?? top;
-      const overlayStyle = getComputedStyle(overlay);
-      const overlayRect = overlay.getBoundingClientRect();
-      const isLargeFixedOverlay = ["fixed", "sticky"].includes(overlayStyle.position)
-        && overlayRect.width * overlayRect.height > innerWidth * innerHeight * 0.2;
-      const isSemanticOverlay = overlay instanceof HTMLIFrameElement
-        || overlay instanceof HTMLDialogElement
-        || overlay.getAttribute("role") === "dialog"
-        || overlay.getAttribute("aria-modal") === "true";
-      if (!isSemanticOverlay && !isLargeFixedOverlay) return [];
       return [{
-        tag: overlay.tagName.toLowerCase(),
-        name: overlay.getAttribute("aria-label") || overlay.getAttribute("title") || "",
-        source: overlay instanceof HTMLIFrameElement ? overlay.src : "",
+        tag: top.tagName.toLowerCase(),
+        name: top.getAttribute("aria-label") || top.getAttribute("title") || "",
+        source: top instanceof HTMLIFrameElement ? top.src : "",
       }];
     });
     if (blockers.length < 3) return null;
