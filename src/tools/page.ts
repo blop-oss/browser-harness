@@ -12,7 +12,7 @@ export function createPageTools(context: BrowserToolContext): NativeToolBridge[]
   return [
     {
       name: "browser_snapshot",
-      description: "Return URL, title, visible text, and a compact semantic interaction view with snapshot-scoped references across the page and child frames. Prefer { ref: 's1:e1' } targets from the latest snapshot. Request includeAria only when semantic references and visible text are insufficient.",
+      description: "Return URL, title, visible text, and a compact semantic interaction view with snapshot-scoped references across the page and child frames. Prefer { ref: 's1:e1' } targets from the latest snapshot. A frame-hosted control MUST be targeted by ref because page-level role/name locators cannot reach into its frame. Request includeAria only when semantic references and visible text are insufficient.",
       parameters: {
         type: "object",
         properties: {
@@ -26,7 +26,7 @@ export function createPageTools(context: BrowserToolContext): NativeToolBridge[]
           },
         },
       },
-      promptSnippet: "- browser_snapshot: Inspect visible text and the compact semantic interaction view. Prefer a current { ref: \"s1:e1\" } target; references expire after the next snapshot. Frame-hosted controls include frame metadata. Request includeAria only if the needed content is missing, or use browser_extract for focused data.",
+      promptSnippet: "- browser_snapshot: Inspect visible text and the compact semantic interaction view. Prefer a current { ref: \"s1:e1\" } target; references expire after the next snapshot. You MUST use the ref for entries with frame= metadata because role/name targets cannot cross frames. Request includeAria only if the needed content is missing, or use browser_extract for focused data.",
       execute: (input) => context.record("browser_snapshot", input, async () => {
         const title = await context.page.title();
         const bodyText = await context.page.locator("body").innerText({ timeout: 5000 }).catch(() => "");
