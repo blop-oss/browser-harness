@@ -2,6 +2,7 @@ import type { BrowserToolContext, NativeToolBridge } from "./types.js";
 import { locateTarget, selectorFor, targetParameterSchema } from "./locators.js";
 import { describeBlockedSubmission } from "./form-validation.js";
 import { describeFailure } from "./expect.js";
+import { describeLocatorBlocker } from "./references.js";
 
 export function createMouseTools(context: BrowserToolContext): NativeToolBridge[] {
   return [
@@ -17,6 +18,8 @@ export function createMouseTools(context: BrowserToolContext): NativeToolBridge[
       execute: (input) => context.record("browser_click", input, async () => {
         const target = selectorFor(input.target);
         const locator = locateTarget(context.page, input.target);
+        const blocker = await describeLocatorBlocker(context.page, locator);
+        if (blocker) throw new Error(blocker);
         // Resolve the element BEFORE clicking so we can inspect it afterward
         // without auto-waiting on a locator that a successful submit navigated
         // away (the handle simply throws once its context is destroyed).

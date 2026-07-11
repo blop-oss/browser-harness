@@ -2,7 +2,7 @@ import type { Locator, Page } from "playwright";
 
 type ReferenceState = {
   snapshot: number;
-  refs: Map<string, Locator>;
+  refs: Map<string, { locator: Locator; entry: InteractiveReference }>;
 };
 
 export type InteractiveReference = {
@@ -14,6 +14,7 @@ export type InteractiveReference = {
   region?: string;
   frame?: string;
   states?: string[];
+  actions: string[];
 };
 
 export type InteractiveReferences = {
@@ -35,7 +36,7 @@ const INTERACTIVE_SELECTOR = [
 
 export async function collectInteractiveReferences(page: Page): Promise<InteractiveReferences> {
   const snapshot = (states.get(page)?.snapshot ?? 0) + 1;
-  const refs = new Map<string, Locator>();
+  const refs = new Map<string, { locator: Locator; entry: InteractiveReference }>();
   const collected: (InteractiveReference & { locator: Locator })[] = [];
   let sequence = 0;
 
@@ -93,15 +94,19 @@ export async function collectInteractiveReferences(page: Page): Promise<Interact
       ].filter(Boolean).join(":") : undefined;
       const value = "value" in element ? String((element as HTMLInputElement).value).slice(0, 160) : undefined;
       const href = element instanceof HTMLAnchorElement ? element.href : undefined;
-      return [{ index, role, name, value, href, region, states: state }];
+      const actions = role === "textbox" || element.isContentEditable
+        ? ["fill", "press", "clear", "focus"]
+        : role === "checkbox" || role === "radio" ? ["click", "check", "focus"]
+        : tag === "select" || role === "combobox" ? ["click", "select", "focus"]
+        : ["click", "focus"];
+      return [{ index, role, name, value, href, region, states: state, actions }];
     }));
 
     for (const entry of entries) {
       sequence += 1;
       const ref = `s${snapshot}:e${sequence}`;
       const entryLocator = locator.nth(entry.index);
-      refs.set(ref, entryLocator);
-      collected.push({
+      const reference: InteractiveReference = {
         ref,
         role: entry.role,
         name: entry.name,
@@ -110,6 +115,11 @@ export async function collectInteractiveReferences(page: Page): Promise<Interact
         ...(entry.region ? { region: entry.region } : {}),
         ...(frame !== page.mainFrame() ? { frame: compactFrame(frame.url()) } : {}),
         ...(entry.states.length ? { states: entry.states } : {}),
+        actions: entry.actions,
+      };
+      refs.set(ref, { locator: entryLocator, entry: reference });
+      collected.push({
+        ...reference,
         locator: entryLocator,
       });
     }
@@ -128,11 +138,38 @@ export async function collectInteractiveReferences(page: Page): Promise<Interact
 }
 
 export function locateReference(page: Page, ref: string): Locator {
-  const locator = states.get(page)?.refs.get(ref);
-  if (!locator) {
+  const stored = states.get(page)?.refs.get(ref);
+  if (!stored) {
     throw new Error(`Unknown or stale element reference "${ref}". Take a new browser_snapshot and use a current reference.`);
   }
-  return locator;
+  return stored.locator;
+}
+
+export async function describeLocatorBlocker(page: Page, locator: Locator) {
+  const blocker = await locator.evaluate((element) => {
+    if (!(element instanceof HTMLElement)) return null;
+    const rect = element.getBoundingClientRect();
+    const x = Math.max(0, Math.min(innerWidth - 1, rect.left + rect.width / 2));
+    const y = Math.max(0, Math.min(innerHeight - 1, rect.top + rect.height / 2));
+    const top = document.elementFromPoint(x, y);
+    if (!top || top === element || element.contains(top)) return null;
+    return {
+      tag: top.tagName.toLowerCase(),
+      name: top.getAttribute("aria-label") || top.getAttribute("title") || "",
+      source: top instanceof HTMLIFrameElement ? top.src : "",
+    };
+  }).catch(() => null);
+  if (!blocker) return null;
+
+  const frameControls = [...(states.get(page)?.refs.values() ?? [])]
+    .map((stored) => stored.entry)
+    .filter((entry) => entry.frame && entry.actions.includes("click") && entry.states?.includes("in-viewport"))
+    .sort((left, right) => blockerPriority(right) - blockerPriority(left))
+    .slice(0, 5)
+    .map((entry) => `[${entry.ref}] ${entry.role} ${JSON.stringify(entry.name)}`);
+  const identity = blocker.source || blocker.name || blocker.tag;
+  return `Target is occluded by ${identity}. Do not retry it until the blocker is handled.`
+    + (frameControls.length ? ` Available frame controls: ${frameControls.join("; ")}.` : "");
 }
 
 function referencePriority(entry: InteractiveReference) {
@@ -150,6 +187,7 @@ function formatReference(entry: InteractiveReference) {
     entry.href ? `href=${JSON.stringify(entry.href)}` : "",
     entry.region ? `region=${JSON.stringify(entry.region)}` : "",
     entry.frame ? `frame=${JSON.stringify(entry.frame)}` : "",
+    `actions=[${entry.actions.join(",")}]`,
     entry.states?.length ? `[${entry.states.join(",")}]` : "",
   ].filter(Boolean).join(" ");
   return `[${entry.ref}] ${entry.role} ${JSON.stringify(entry.name)}${details ? ` ${details}` : ""}`;
@@ -162,4 +200,8 @@ function compactFrame(url: string) {
   } catch {
     return url.slice(0, 120);
   }
+}
+
+function blockerPriority(entry: InteractiveReference) {
+  return /accept|reject|allow|agree|consent|cookie/i.test(entry.name) ? 10 : 0;
 }

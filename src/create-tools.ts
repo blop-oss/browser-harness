@@ -14,6 +14,14 @@ import { createPageTools } from "./tools/page.js";
 import { createTabTools } from "./tools/tabs.js";
 import type { HarnessAction } from "./types.js";
 import type { BrowserToolContext, NativeToolBridge, NativeToolResult, FinishState } from "./tools/types.js";
+import { captureActionState, describeActionOutcome } from "./tools/action-outcome.js";
+
+const OUTCOME_TOOLS = new Set([
+  "browser_goto", "browser_back", "browser_forward", "browser_reload",
+  "browser_click", "browser_double_click", "browser_right_click", "browser_drag_and_drop",
+  "browser_type", "browser_press", "browser_clear", "browser_check", "browser_uncheck",
+  "browser_select_option", "browser_upload_file",
+]);
 
 export type { FinishState, NativeToolBridge } from "./tools/types.js";
 
@@ -44,6 +52,7 @@ export async function createBrowserTools(
     },
     getActivePage: () => ref.page,
     record: async (name, input, fn): NativeToolResult => {
+      const before = OUTCOME_TOOLS.has(name) ? await captureActionState(ref.page) : null;
       let result: Awaited<NativeToolResult>;
       try {
         result = await fn();
@@ -59,6 +68,16 @@ export async function createBrowserTools(
         options.actions.push(action);
         options.onAction?.(action);
         throw error;
+      }
+      if (before) {
+        const outcome = describeActionOutcome(before, await captureActionState(ref.page));
+        if (outcome) {
+          result = {
+            ...result,
+            content: `${result.content}\n\nOutcome: ${outcome}`,
+            metadata: { ...(result.metadata ?? {}), outcome },
+          };
+        }
       }
       const action: HarnessAction = {
         name,
