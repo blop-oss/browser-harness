@@ -2,6 +2,25 @@ import { describe, expect, test } from "bun:test";
 import { setupToolPage, tool } from "./tool-fixture";
 
 describe("keyboard browser tools", () => {
+  test("fills and submits an input in one action", async () => {
+    const fixture = await setupToolPage(`
+      <main>
+        <label>Search <input onkeydown="if(event.key==='Enter') this.dataset.submitted='true'" /></label>
+      </main>
+    `);
+    try {
+      const result = await tool(fixture.tools, "browser_type").execute({
+        target: { label: "Search" },
+        text: "Seattle",
+        submit: true,
+      });
+      expect(result.metadata?.submitted).toBe(true);
+      expect(await fixture.page.locator("input").getAttribute("data-submitted")).toBe("true");
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
   test("fills, clears, and presses keys", async () => {
     const fixture = await setupToolPage(`
       <main>

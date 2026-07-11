@@ -183,3 +183,12 @@ location and forecast view.
 Task ID: `8cfb8d75-8076-4f0a-a7e0-4f0c5a94aaae`. Find the cold and flu forecast
 and today's air quality in Champaign, IL. This tests whether the agent can track
 and prove two distinct outcomes without duplicate exploration.
+
+### Run 18: Health forecast baseline — llm_calls=37 (CRASH)
+
+- Result: Failed after 37 model calls and 40 actions when the cycle guard
+  stopped repeated type/click/snapshot search attempts.
+- Insight: Filling the location field succeeded, but clicking the site's Search
+  button did not submit. The model never switched to Enter.
+- Next: Add an explicit, generic `submit: true` option to `browser_type` so an
+  agent can fill and press Enter in one controlled action.

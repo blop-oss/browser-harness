@@ -6,20 +6,26 @@ export function createKeyboardTools(context: BrowserToolContext): NativeToolBrid
   return [
     {
       name: "browser_type",
-      description: "Fill an input. Prefer a structured target such as { label: 'Email' }, { placeholder: 'Search' }, or { role: 'textbox', name: 'Location' }. Do not pass ARIA lines or selector-like shorthand as strings.",
+      description: "Fill an input. Prefer a structured target such as { label: 'Email' }, { placeholder: 'Search' }, or { role: 'textbox', name: 'Location' }. Set submit: true to press Enter after filling a search box or form field. Do not pass ARIA lines or selector-like shorthand as strings.",
       parameters: {
         type: "object",
         properties: {
           target: targetParameterSchema,
           text: { type: "string" },
+          submit: { type: "boolean", description: "Press Enter after filling." },
         },
         required: ["target", "text"],
       },
-      promptSnippet: "- browser_type: Fill text using a structured target, such as { label: \"Email\" }, { placeholder: \"Search\" }, or { role: \"textbox\", name: \"Location\" }. Never copy `textbox \"Location\"` from a snapshot as a string.",
+      promptSnippet: "- browser_type: Fill text using a structured target, such as { label: \"Email\" }, { placeholder: \"Search\" }, or { role: \"textbox\", name: \"Location\" }. Set submit: true when the intended action is to fill and press Enter. Never copy `textbox \"Location\"` from a snapshot as a string.",
       execute: (input) => context.record("browser_type", input, async () => {
         const target = selectorFor(input.target);
         const text = String(input.text ?? "");
-        await locateTarget(context.page, input.target).fill(text, { timeout: 5000 });
+        const locator = locateTarget(context.page, input.target);
+        await locator.fill(text, { timeout: 5000 });
+        if (input.submit === true) {
+          await locator.press("Enter", { timeout: 5000 });
+          return { content: `Typed into ${target} and pressed Enter`, metadata: { submitted: true } };
+        }
         return { content: `Typed into ${target}` };
       }),
     },
