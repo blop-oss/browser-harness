@@ -37,6 +37,46 @@ export async function captureActionState(page: Page): Promise<ActionState | null
   }
 }
 
+export async function settleActionState(
+  page: Page,
+  before: ActionState | null,
+  name: string,
+  input: Record<string, unknown>,
+) {
+  if (!before) return captureActionState(page);
+  const maySubmit = name === "browser_type" && input.submit === true
+    || name === "browser_press" && String(input.key ?? "").toLowerCase() === "enter";
+  const maxWaitMs = name === "browser_goto" || maySubmit ? 1_500
+    : name === "browser_type" ? 900
+    : 1_200;
+  const quietMs = 200;
+  const deadline = Date.now() + maxWaitMs;
+  let latest = before;
+  let latestFingerprint = actionStateFingerprint(before);
+  let changed = false;
+  let lastChangeAt = Date.now();
+
+  while (Date.now() < deadline) {
+    await delay(100);
+    const current = await captureActionState(page);
+    if (!current) continue;
+    const fingerprint = actionStateFingerprint(current);
+    if (fingerprint !== latestFingerprint) {
+      latest = current;
+      latestFingerprint = fingerprint;
+      changed = true;
+      lastChangeAt = Date.now();
+    }
+    if (changed && Date.now() - lastChangeAt >= quietMs) return latest;
+  }
+  return latest;
+}
+
+export function actionStateFingerprint(state: ActionState | null) {
+  if (!state) return "unavailable";
+  return [state.url, state.title, state.focus, state.dialogs, state.alerts, state.contentHash].join("|");
+}
+
 export function describeActionOutcome(before: ActionState | null, after: ActionState | null) {
   if (!before || !after) return null;
   const changes: string[] = [];
@@ -47,4 +87,8 @@ export function describeActionOutcome(before: ActionState | null, after: ActionS
   if (before.alerts !== after.alerts) changes.push(`alerts ${before.alerts} -> ${after.alerts}`);
   if (before.contentHash !== after.contentHash) changes.push("visible page content changed");
   return changes.length ? changes.join("; ") : "no meaningful page-state change detected";
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

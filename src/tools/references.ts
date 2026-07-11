@@ -25,7 +25,7 @@ export type InteractiveReferences = {
 };
 
 const states = new WeakMap<Page, ReferenceState>();
-const MAX_EXPOSED_REFERENCES = 60;
+const MAX_EXPOSED_REFERENCES = 30;
 const INTERACTIVE_SELECTOR = [
   "a[href]", "button", "input", "select", "textarea", "summary",
   "[contenteditable='true']", "[tabindex]",
@@ -148,19 +148,45 @@ export function locateReference(page: Page, ref: string): Locator {
   return stored.locator;
 }
 
+export function validateReferenceAction(page: Page, target: unknown, toolName: string) {
+  if (!target || typeof target !== "object" || !("ref" in target)) return;
+  const ref = String((target as { ref?: unknown }).ref ?? "");
+  const stored = states.get(page)?.refs.get(ref);
+  if (!stored) return;
+  const action = toolAction(toolName);
+  if (!action || stored.entry.actions.includes(action)) return;
+  throw new Error(
+    `Cannot ${action} [${ref}] ${stored.entry.role} ${JSON.stringify(stored.entry.name)}. `
+    + `Allowed actions: ${stored.entry.actions.join(", ")}.`,
+  );
+}
+
 export async function describeLocatorBlocker(page: Page, locator: Locator) {
   const blocker = await locator.evaluate((element) => {
     if (!(element instanceof HTMLElement)) return null;
     const rect = element.getBoundingClientRect();
-    const x = Math.max(0, Math.min(innerWidth - 1, rect.left + rect.width / 2));
-    const y = Math.max(0, Math.min(innerHeight - 1, rect.top + rect.height / 2));
-    const top = document.elementFromPoint(x, y);
-    if (!top || top === element || element.contains(top)) return null;
-    return {
-      tag: top.tagName.toLowerCase(),
-      name: top.getAttribute("aria-label") || top.getAttribute("title") || "",
-      source: top instanceof HTMLIFrameElement ? top.src : "",
-    };
+    const insetX = Math.min(4, rect.width / 4);
+    const insetY = Math.min(4, rect.height / 4);
+    const points = [
+      [rect.left + rect.width / 2, rect.top + rect.height / 2],
+      [rect.left + insetX, rect.top + insetY],
+      [rect.right - insetX, rect.top + insetY],
+      [rect.left + insetX, rect.bottom - insetY],
+      [rect.right - insetX, rect.bottom - insetY],
+    ];
+    const blockers = points.flatMap(([rawX, rawY]) => {
+      const x = Math.max(0, Math.min(innerWidth - 1, rawX));
+      const y = Math.max(0, Math.min(innerHeight - 1, rawY));
+      const top = document.elementFromPoint(x, y);
+      if (!top || top === element || element.contains(top)) return [];
+      return [{
+        tag: top.tagName.toLowerCase(),
+        name: top.getAttribute("aria-label") || top.getAttribute("title") || "",
+        source: top instanceof HTMLIFrameElement ? top.src : "",
+      }];
+    });
+    if (blockers.length < 3) return null;
+    return blockers[0];
   }).catch(() => null);
   if (!blocker) return null;
 
@@ -207,4 +233,15 @@ function compactFrame(url: string) {
 
 function blockerPriority(entry: InteractiveReference) {
   return /accept|reject|allow|agree|consent|cookie/i.test(entry.name) ? 10 : 0;
+}
+
+function toolAction(toolName: string) {
+  if (["browser_click", "browser_double_click", "browser_right_click"].includes(toolName)) return "click";
+  if (toolName === "browser_type") return "fill";
+  if (toolName === "browser_press") return "press";
+  if (toolName === "browser_clear") return "clear";
+  if (["browser_check", "browser_uncheck"].includes(toolName)) return "check";
+  if (toolName === "browser_select_option") return "select";
+  if (toolName === "browser_focus") return "focus";
+  return null;
 }
