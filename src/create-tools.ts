@@ -14,7 +14,7 @@ import { createPageTools } from "./tools/page.js";
 import { createTabTools } from "./tools/tabs.js";
 import type { HarnessAction } from "./types.js";
 import type { BrowserToolContext, NativeToolBridge, NativeToolResult, FinishState } from "./tools/types.js";
-import { captureActionState, captureSubmittedActionState, describeActionOutcome } from "./tools/action-outcome.js";
+import { captureActionState, describeActionOutcome } from "./tools/action-outcome.js";
 
 const OUTCOME_TOOLS = new Set([
   "browser_goto", "browser_back", "browser_forward", "browser_reload",
@@ -70,10 +70,7 @@ export async function createBrowserTools(
         throw error;
       }
       if (before) {
-        const after = name === "browser_type" && input.submit === true
-          ? await captureSubmittedActionState(ref.page, before)
-          : await captureActionState(ref.page);
-        const outcome = describeActionOutcome(before, after);
+        const outcome = describeActionOutcome(before, await captureActionState(ref.page));
         if (outcome) {
           result = {
             ...result,

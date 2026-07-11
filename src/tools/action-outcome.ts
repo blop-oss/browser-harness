@@ -37,18 +37,6 @@ export async function captureActionState(page: Page): Promise<ActionState | null
   }
 }
 
-export async function captureSubmittedActionState(page: Page, before: ActionState) {
-  const deadline = Date.now() + 1_000;
-  while (Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    const current = await captureActionState(page);
-    if (current && describeActionOutcome(before, current) !== "no meaningful page-state change detected") {
-      return current;
-    }
-  }
-  return captureActionState(page);
-}
-
 export function describeActionOutcome(before: ActionState | null, after: ActionState | null) {
   if (!before || !after) return null;
   const changes: string[] = [];
