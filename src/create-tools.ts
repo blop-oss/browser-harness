@@ -14,8 +14,8 @@ import { createPageTools } from "./tools/page.js";
 import { createTabTools } from "./tools/tabs.js";
 import type { HarnessAction } from "./types.js";
 import type { BrowserToolContext, NativeToolBridge, NativeToolResult, FinishState } from "./tools/types.js";
-import { actionStateFingerprint, captureActionState, describeActionOutcome, settleActionState } from "./tools/action-outcome.js";
-import { validateReferenceAction } from "./tools/references.js";
+import { captureActionState, describeActionOutcome, settleActionState, stableActionStateFingerprint } from "./tools/action-outcome.js";
+import { semanticActionSignature, validateReferenceAction } from "./tools/references.js";
 
 const OUTCOME_TOOLS = new Set([
   "browser_goto", "browser_back", "browser_forward", "browser_reload",
@@ -55,11 +55,11 @@ export async function createBrowserTools(
     getActivePage: () => ref.page,
     record: async (name, input, fn): NativeToolResult => {
       const before = OUTCOME_TOOLS.has(name) ? await captureActionState(ref.page) : null;
-      const signature = `${name}:${JSON.stringify(input)}`;
+      const signature = semanticActionSignature(ref.page, input.target, name);
       let result: Awaited<NativeToolResult>;
       try {
         validateReferenceAction(ref.page, input.target, name);
-        if (before && lastNoProgress?.signature === signature && lastNoProgress.state === actionStateFingerprint(before)) {
+        if (before && lastNoProgress?.signature === signature && lastNoProgress.state === stableActionStateFingerprint(before)) {
           throw new Error("Rejected repeated action: the same action already produced no meaningful page-state change. Choose a different action or resolve the blocker.");
         }
         result = await fn();
@@ -86,7 +86,7 @@ export async function createBrowserTools(
             metadata: { ...(result.metadata ?? {}), outcome },
           };
           lastNoProgress = outcome === "no meaningful page-state change detected"
-            ? { signature, state: actionStateFingerprint(after) }
+            ? { signature, state: stableActionStateFingerprint(after) }
             : null;
         }
       }
