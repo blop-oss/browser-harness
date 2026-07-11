@@ -94,11 +94,14 @@ export async function collectInteractiveReferences(page: Page): Promise<Interact
       ].filter(Boolean).join(":") : undefined;
       const value = "value" in element ? String((element as HTMLInputElement).value).slice(0, 160) : undefined;
       const href = element instanceof HTMLAnchorElement ? element.href : undefined;
-      const actions = role === "textbox" || element.isContentEditable
+      const actions = input && (role === "textbox" || role === "combobox") || tag === "textarea" || element.isContentEditable
         ? ["fill", "press", "clear", "focus"]
         : role === "checkbox" || role === "radio" ? ["click", "check", "focus"]
-        : tag === "select" || role === "combobox" ? ["click", "select", "focus"]
-        : ["click", "focus"];
+        : tag === "select" ? ["click", "select", "focus"]
+        : tag === "a" || tag === "button" || tag === "summary"
+          || ["button", "link", "option", "menuitem", "switch", "tab"].includes(role)
+          ? ["click", "focus"]
+          : ["focus"];
       return [{ index, role, name, value, href, region, states: state, actions }];
     }));
 
