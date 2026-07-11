@@ -48,9 +48,9 @@ export function createKeyboardTools(context: BrowserToolContext): NativeToolBrid
         // Resolve the focused field before the keypress so a successful submit
         // that navigates away just throws on inspection instead of auto-waiting.
         const handle = isEnter && target
-          ? await locateTarget(context.page, target).elementHandle({ timeout: 5000 }).catch(() => null)
+          ? await locateTarget(context.page, input.target).elementHandle({ timeout: 5000 }).catch(() => null)
           : null;
-        if (target) await locateTarget(context.page, target).press(key, { timeout: 5000 });
+        if (target) await locateTarget(context.page, input.target).press(key, { timeout: 5000 });
         else await context.page.keyboard.press(key);
         // Enter inside a field submits the enclosing form; if validation silently
         // blocks that submit, surface the offending fields to the agent.
@@ -84,7 +84,7 @@ export function createKeyboardTools(context: BrowserToolContext): NativeToolBrid
       promptSnippet: "- browser_focus: Focus an element before keyboard input or focus assertions.",
       execute: (input) => context.record("browser_focus", input, async () => {
         const target = selectorFor(input.target);
-        await locateTarget(context.page, target).focus({ timeout: 5000 });
+        await locateTarget(context.page, input.target).focus({ timeout: 5000 });
         return { content: `Focused ${target}` };
       }),
     },
@@ -111,7 +111,7 @@ export function createKeyboardTools(context: BrowserToolContext): NativeToolBrid
       promptSnippet: "- browser_clear: Clear existing text from a form field before entering a new value.",
       execute: (input) => context.record("browser_clear", input, async () => {
         const target = selectorFor(input.target);
-        await locateTarget(context.page, target).fill("", { timeout: 5000 });
+        await locateTarget(context.page, input.target).fill("", { timeout: 5000 });
         return { content: `Cleared ${target}` };
       }),
     },

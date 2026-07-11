@@ -47,6 +47,26 @@ describe("keyboard browser tools", () => {
     }
   }, 15000);
 
+  test("preserves structured targets for press, focus, and clear", async () => {
+    const fixture = await setupToolPage(`
+      <main>
+        <label>Search <input value="Seattle" /></label>
+      </main>
+    `);
+
+    try {
+      const target = { role: "textbox", name: "Search", exact: true };
+      await tool(fixture.tools, "browser_focus").execute({ target });
+      expect(await fixture.page.evaluate(() => document.activeElement?.tagName)).toBe("INPUT");
+
+      await tool(fixture.tools, "browser_press").execute({ target, key: "End" });
+      await tool(fixture.tools, "browser_clear").execute({ target });
+      expect(await fixture.page.getByRole("textbox", { name: "Search" }).inputValue()).toBe("");
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
   test("tabs focus forward and backward", async () => {
     const fixture = await setupToolPage(`
       <main>
