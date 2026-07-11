@@ -54,19 +54,19 @@ describe("structured browser targets", () => {
     try {
       const first = await tool(fixture.tools, "browser_snapshot").execute({});
       const firstSnapshot = JSON.parse(first.content) as {
-        interactiveElements: { ref: string; role: string; name: string }[];
+        semanticSnapshot: string;
       };
-      const saves = firstSnapshot.interactiveElements.filter((element) => element.role === "button" && element.name === "Save");
-      const save = saves[1];
+      const saves = [...firstSnapshot.semanticSnapshot.matchAll(/\[(s1:e\d+)\] button "Save"/g)];
+      const saveRef = saves[1]?.[1];
       expect(saves).toHaveLength(2);
-      expect(save?.ref).toMatch(/^s1:e\d+$/);
+      expect(saveRef).toMatch(/^s1:e\d+$/);
 
-      await tool(fixture.tools, "browser_click").execute({ target: { ref: save?.ref } });
+      await tool(fixture.tools, "browser_click").execute({ target: { ref: saveRef } });
       expect(await fixture.page.locator("[data-position='first']").getAttribute("data-clicked")).toBeNull();
       expect(await fixture.page.locator("[data-position='second']").getAttribute("data-clicked")).toBe("true");
 
       await tool(fixture.tools, "browser_snapshot").execute({});
-      await expect(tool(fixture.tools, "browser_click").execute({ target: { ref: save?.ref } }))
+      await expect(tool(fixture.tools, "browser_click").execute({ target: { ref: saveRef } }))
         .rejects.toThrow("Unknown or stale element reference");
     } finally {
       await fixture.cleanup();

@@ -12,7 +12,7 @@ export function createPageTools(context: BrowserToolContext): NativeToolBridge[]
   return [
     {
       name: "browser_snapshot",
-      description: "Return the current URL, page title, visible text, accessibility snapshot, snapshot-scoped references for visible interactive elements, focused element, and viewport. Prefer { ref: 's1:e1' } targets from the latest snapshot. The ARIA tree is capped by default to control model context; increase maxAriaChars only when the required element is missing.",
+      description: "Return URL, title, visible text, and a compact semantic interaction view with snapshot-scoped references across the page and child frames. Prefer { ref: 's1:e1' } targets from the latest snapshot. Request includeAria only when semantic references and visible text are insufficient.",
       parameters: {
         type: "object",
         properties: {
@@ -20,24 +20,23 @@ export function createPageTools(context: BrowserToolContext): NativeToolBridge[]
             type: "number",
             description: `ARIA character budget (${MIN_ARIA_SNAPSHOT_CHARS}-${MAX_ARIA_SNAPSHOT_CHARS}, default ${DEFAULT_ARIA_SNAPSHOT_CHARS}).`,
           },
+          includeAria: {
+            type: "boolean",
+            description: "Include the full accessibility snapshot as an explicit fallback. Off by default.",
+          },
         },
       },
-      promptSnippet: "- browser_snapshot: Inspect URL, title, visible text, ARIA roles/labels, interactive element references, focus, and viewport before deciding the next action. Prefer a current { ref: \"s1:e1\" } target when available. References expire after the next snapshot. The ARIA tree is capped; increase maxAriaChars only if the needed element is missing, or use browser_extract for focused data.",
+      promptSnippet: "- browser_snapshot: Inspect visible text and the compact semantic interaction view. Prefer a current { ref: \"s1:e1\" } target; references expire after the next snapshot. Frame-hosted controls include frame metadata. Request includeAria only if the needed content is missing, or use browser_extract for focused data.",
       execute: (input) => context.record("browser_snapshot", input, async () => {
         const title = await context.page.title();
         const bodyText = await context.page.locator("body").innerText({ timeout: 5000 }).catch(() => "");
         const excerpt = bodyText.replace(/\s+/g, " ").trim().slice(0, 4000);
         const interactiveReferences = await collectInteractiveReferences(context.page)
-          .catch(() => ({ elements: [], total: 0, omitted: 0 }));
-        const interactiveElements = interactiveReferences.elements;
-        const maxAriaChars = Math.max(
-          MIN_ARIA_SNAPSHOT_CHARS,
-          clampAriaBudget(input.maxAriaChars) - JSON.stringify(interactiveReferences).length,
-        );
-        const ariaSnapshot = truncateSnapshot(
-          await readAriaSnapshot(context.page),
-          maxAriaChars,
-        );
+          .catch(() => ({ elements: [], text: "", total: 0, omitted: 0 }));
+        const includeAria = input.includeAria === true || input.maxAriaChars !== undefined;
+        const ariaSnapshot = includeAria
+          ? truncateSnapshot(await readAriaSnapshot(context.page), clampAriaBudget(input.maxAriaChars))
+          : undefined;
         const pageWithEvaluate = context.page as typeof context.page & { evaluate?: typeof context.page.evaluate };
         const focusedElement = pageWithEvaluate.evaluate ? await pageWithEvaluate.evaluate(() => {
           const element = document.activeElement;
@@ -57,8 +56,8 @@ export function createPageTools(context: BrowserToolContext): NativeToolBridge[]
           url: context.page.url(),
           title,
           text: excerpt,
-          ariaSnapshot,
-          interactiveElements,
+          semanticSnapshot: interactiveReferences.text,
+          ...(ariaSnapshot !== undefined ? { ariaSnapshot } : {}),
           omittedInteractiveElements: interactiveReferences.omitted,
           focusedElement,
           viewport,
@@ -70,9 +69,9 @@ export function createPageTools(context: BrowserToolContext): NativeToolBridge[]
             title,
             hasAriaSnapshot: Boolean(ariaSnapshot),
             interactiveElementCount: interactiveReferences.total,
-            exposedInteractiveElementCount: interactiveElements.length,
+            exposedInteractiveElementCount: interactiveReferences.elements.length,
             omittedInteractiveElementCount: interactiveReferences.omitted,
-            ariaSnapshotTruncated: ariaSnapshot.endsWith("\n...[ARIA snapshot truncated]"),
+            ariaSnapshotTruncated: ariaSnapshot?.endsWith("\n...[ARIA snapshot truncated]") ?? false,
             viewport: viewport ?? null,
           },
         };
