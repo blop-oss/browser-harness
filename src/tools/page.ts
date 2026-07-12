@@ -12,7 +12,7 @@ export function createPageTools(context: BrowserToolContext): NativeToolBridge[]
   return [
     {
       name: "browser_snapshot",
-      description: "Return URL, title, visible text, and a compact semantic interaction view with snapshot-scoped references across the page and child frames. Prefer { ref: 's1:e1' } targets from the latest snapshot. A frame-hosted control MUST be targeted by ref because page-level role/name locators cannot reach into its frame. Request includeAria only when semantic references and visible text are insufficient.",
+      description: "Return URL, title, visible text, and a compact semantic interaction view with opaque references across the page and child frames. Prefer { ref: 'e1' } targets from the latest snapshot. Copy refs verbatim; never edit or predict their digits. Never act on an [occluded] entry; handle the visible dialog or blocker first. A frame-hosted control MUST be targeted by ref because page-level role/name locators cannot reach into its frame. Request includeAria only when semantic references and visible text are insufficient.",
       parameters: {
         type: "object",
         properties: {
@@ -26,17 +26,20 @@ export function createPageTools(context: BrowserToolContext): NativeToolBridge[]
           },
         },
       },
-      promptSnippet: "- browser_snapshot: Inspect visible text and the compact semantic interaction view. Prefer a current { ref: \"s1:e1\" } target; references expire after the next snapshot. You MUST use the ref for entries with frame= metadata because role/name targets cannot cross frames. Request includeAria only if the needed content is missing, or use browser_extract for focused data.",
+      promptSnippet: "- browser_snapshot: Inspect visible text and the compact semantic interaction view. Prefer a current { ref: \"e1\" } target. Refs are opaque: copy them verbatim and never edit or predict their digits. A ref may persist across snapshots only while the exact element remains valid and exposed. Never act on an [occluded] entry: close or handle the visible dialog/blocker first. You MUST use the ref for entries with frame= metadata because role/name targets cannot cross frames. Request includeAria only if the needed content is missing, or use browser_extract for focused data.",
       execute: (input) => context.record("browser_snapshot", input, async () => {
         const title = await context.page.title();
         const bodyText = await context.page.locator("body").innerText({ timeout: 5000 }).catch(() => "");
         const excerpt = bodyText.replace(/\s+/g, " ").trim().slice(0, 4000);
-        const interactiveReferences = await collectInteractiveReferences(context.page)
-          .catch(() => ({ elements: [], text: "", total: 0, omitted: 0 }));
         const includeAria = input.includeAria === true || input.maxAriaChars !== undefined;
         const ariaSnapshot = includeAria
           ? truncateSnapshot(await readAriaSnapshot(context.page), clampAriaBudget(input.maxAriaChars))
           : undefined;
+        // Collect interaction refs last: Playwright's aria-ref mapping belongs
+        // to the most recent ARIA snapshot. The optional full fallback above
+        // must not supersede the exact refs exposed to the model.
+        const interactiveReferences = await collectInteractiveReferences(context.page)
+          .catch(() => ({ elements: [], text: "", total: 0, omitted: 0 }));
         const pageWithEvaluate = context.page as typeof context.page & { evaluate?: typeof context.page.evaluate };
         const focusedElement = pageWithEvaluate.evaluate ? await pageWithEvaluate.evaluate(() => {
           const element = document.activeElement;
@@ -57,6 +60,16 @@ export function createPageTools(context: BrowserToolContext): NativeToolBridge[]
           title,
           text: excerpt,
           semanticSnapshot: interactiveReferences.text,
+          actionTargets: interactiveReferences.elements.slice(0, 8).map((entry) => ({
+            target: { ref: entry.ref },
+            role: entry.role,
+            name: entry.name,
+            actions: entry.actions,
+            ...(entry.states?.length ? { states: entry.states } : {}),
+            ...(entry.href ? { href: entry.href } : {}),
+            ...(entry.region ? { region: entry.region } : {}),
+            ...(entry.frame ? { frame: entry.frame } : {}),
+          })),
           ...(ariaSnapshot !== undefined ? { ariaSnapshot } : {}),
           omittedInteractiveElements: interactiveReferences.omitted,
           focusedElement,
@@ -115,18 +128,21 @@ export function createPageTools(context: BrowserToolContext): NativeToolBridge[]
     },
     {
       name: "browser_screenshot",
-      description: "Capture a focused evidence screenshot and return its local path. Use target for the smallest useful element or region; use fullPage only when the whole layout is the evidence.",
+      description: "Capture an evidence screenshot and return its local path. Omit target for reliable page-level evidence. Use a target only when it is current on the present page; a ref clicked before navigation is stale.",
       parameters: {
         type: "object",
         properties: {
           name: { type: "string" },
           checkpoint: { type: "string" },
           reason: { type: "string" },
-          target: targetParameterSchema,
+          target: {
+            ...targetParameterSchema,
+            description: "Optional current-page target. Never reuse a ref after it was clicked or after navigation; take a fresh snapshot first, or omit target for page-level evidence.",
+          },
           fullPage: { type: "boolean" },
         },
       },
-      promptSnippet: "- browser_screenshot: Capture only useful checkpoint evidence. Pass target for the smallest relevant element/region; avoid fullPage unless the full layout is the evidence.",
+      promptSnippet: "- browser_screenshot: Capture useful checkpoint evidence. After navigation, omit target for page-level evidence unless a fresh snapshot exposed a new target. Never reuse the clicked pre-navigation ref.",
       execute: (input) => context.record("browser_screenshot", input, async () => {
         const rawName = selectorFor(input.name) || selectorFor(input.checkpoint) || `screenshot-${context.screenshots.length + 1}`;
         const safeName = basename(rawName).replace(/[^a-zA-Z0-9._-]/g, "-");

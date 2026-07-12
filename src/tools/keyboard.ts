@@ -1,6 +1,7 @@
 import type { BrowserToolContext, NativeToolBridge } from "./types.js";
 import { locateTarget, selectorFor, targetParameterSchema } from "./locators.js";
 import { describeBlockedSubmission } from "./form-validation.js";
+import { blockedActionResult } from "./references.js";
 
 export function createKeyboardTools(context: BrowserToolContext): NativeToolBridge[] {
   return [
@@ -21,8 +22,20 @@ export function createKeyboardTools(context: BrowserToolContext): NativeToolBrid
         const target = selectorFor(input.target);
         const text = String(input.text ?? "");
         const locator = locateTarget(context.page, input.target);
+        const blockedResult = await blockedActionResult(context.page, locator, "Typing");
+        if (blockedResult) return blockedResult;
         await locator.fill(text, { timeout: 5000 });
         if (input.submit === true) {
+          // Filling can synchronously open validation, consent, or suggestion
+          // dialogs. Re-check before the activating key instead of assuming
+          // the pre-fill actionability result is still current.
+          const submitBlocked = await blockedActionResult(context.page, locator, "Submit after typing");
+          if (submitBlocked) {
+            return {
+              ...submitBlocked,
+              content: `Typed into ${target}, but ${submitBlocked.content}`,
+            };
+          }
           await locator.press("Enter", { timeout: 5000 });
           return { content: `Typed into ${target} and pressed Enter`, metadata: { submitted: true } };
         }
@@ -47,10 +60,25 @@ export function createKeyboardTools(context: BrowserToolContext): NativeToolBrid
         const isEnter = /^enter$/i.test(key);
         // Resolve the focused field before the keypress so a successful submit
         // that navigates away just throws on inspection instead of auto-waiting.
-        const handle = isEnter && target
-          ? await locateTarget(context.page, input.target).elementHandle({ timeout: 5000 }).catch(() => null)
+        const targetLocator = target ? locateTarget(context.page, input.target) : null;
+        if (targetLocator) {
+          const blockedResult = await blockedActionResult(context.page, targetLocator, "Key press");
+          if (blockedResult) return blockedResult;
+        } else if (/^(enter|space|spacebar| )$/i.test(key)) {
+          // The main document's active element is only the iframe host when
+          // focus is inside a child frame. Inspect every frame, deepest first,
+          // so a child-frame modal cannot leave a covered control activatable.
+          for (const frame of [...context.page.frames()].reverse()) {
+            const focused = frame.locator(":focus");
+            if (await focused.count() !== 1) continue;
+            const blockedResult = await blockedActionResult(context.page, focused, "Key press");
+            if (blockedResult) return blockedResult;
+          }
+        }
+        const handle = isEnter && targetLocator
+          ? await targetLocator.elementHandle({ timeout: 5000 }).catch(() => null)
           : null;
-        if (target) await locateTarget(context.page, input.target).press(key, { timeout: 5000 });
+        if (targetLocator) await targetLocator.press(key, { timeout: 5000 });
         else await context.page.keyboard.press(key);
         // Enter inside a field submits the enclosing form; if validation silently
         // blocks that submit, surface the offending fields to the agent.
@@ -84,7 +112,10 @@ export function createKeyboardTools(context: BrowserToolContext): NativeToolBrid
       promptSnippet: "- browser_focus: Focus an element before keyboard input or focus assertions.",
       execute: (input) => context.record("browser_focus", input, async () => {
         const target = selectorFor(input.target);
-        await locateTarget(context.page, input.target).focus({ timeout: 5000 });
+        const locator = locateTarget(context.page, input.target);
+        const blockedResult = await blockedActionResult(context.page, locator, "Focus");
+        if (blockedResult) return blockedResult;
+        await locator.focus({ timeout: 5000 });
         return { content: `Focused ${target}` };
       }),
     },
@@ -111,7 +142,10 @@ export function createKeyboardTools(context: BrowserToolContext): NativeToolBrid
       promptSnippet: "- browser_clear: Clear existing text from a form field before entering a new value.",
       execute: (input) => context.record("browser_clear", input, async () => {
         const target = selectorFor(input.target);
-        await locateTarget(context.page, input.target).fill("", { timeout: 5000 });
+        const locator = locateTarget(context.page, input.target);
+        const blockedResult = await blockedActionResult(context.page, locator, "Clear");
+        if (blockedResult) return blockedResult;
+        await locator.fill("", { timeout: 5000 });
         return { content: `Cleared ${target}` };
       }),
     },

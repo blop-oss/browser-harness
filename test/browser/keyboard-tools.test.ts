@@ -47,6 +47,39 @@ describe("keyboard browser tools", () => {
     }
   }, 15000);
 
+  test("rechecks modal obstruction between fill and submit", async () => {
+    const fixture = await setupToolPage(`
+      <label>Search
+        <input aria-label="Search" oninput="
+          if (!document.querySelector('#late-modal')) {
+            const modal = document.createElement('div');
+            modal.id = 'late-modal';
+            modal.setAttribute('role', 'dialog');
+            modal.setAttribute('aria-modal', 'true');
+            modal.setAttribute('aria-label', 'Suggestion consent');
+            modal.style.cssText = 'position:fixed;inset:0;background:white;z-index:1000';
+            modal.innerHTML = '<button>Continue</button>';
+            document.body.append(modal);
+          }
+        " onkeydown="if(event.key === 'Enter') this.dataset.submitted='true'" />
+      </label>
+    `);
+
+    try {
+      const result = await tool(fixture.tools, "browser_type").execute({
+        target: { label: "Search" },
+        text: "Allenford",
+        submit: true,
+      });
+      expect(result.metadata?.blocked).toBe(true);
+      expect(result.content).toContain("Suggestion consent");
+      expect(await fixture.page.getByLabel("Search").inputValue()).toBe("Allenford");
+      expect(await fixture.page.getByLabel("Search").getAttribute("data-submitted")).toBeNull();
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 15000);
+
   test("preserves structured targets for press, focus, and clear", async () => {
     const fixture = await setupToolPage(`
       <main>

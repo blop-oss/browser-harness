@@ -9,7 +9,7 @@ export function createLifecycleTools(context: BrowserToolContext): NativeToolBri
       parameters: {
         type: "object",
         properties: {
-          id: { type: "string" },
+          id: { type: "string", description: "Required stable slug identifying this checkpoint, e.g. checkout_complete." },
           description: { type: "string" },
           status: { type: "string", enum: ["pending", "passed", "failed"] },
           evidence: { type: "string" },
@@ -17,7 +17,7 @@ export function createLifecycleTools(context: BrowserToolContext): NativeToolBri
         },
         required: ["id", "description", "status"],
       },
-      promptSnippet: "- record_critical_point: Track each explicit requirement/checkpoint and cite concrete evidence before finishing.",
+      promptSnippet: "- record_critical_point: Track each explicit requirement/checkpoint and cite concrete evidence before finishing. id, description, and status are all required.",
       execute: (input) => context.record("record_critical_point", input, async () => {
         const id = String(input.id ?? "").trim();
         const description = String(input.description ?? "").trim();
@@ -49,7 +49,7 @@ export function createLifecycleTools(context: BrowserToolContext): NativeToolBri
         },
         required: ["status", "reason"],
       },
-      promptSnippet: "- finish_test: Required final call. Use passed only after deterministic assertions and/or passed critical points prove the goal.",
+      promptSnippet: "- finish_test: Required final call. Use passed only after deterministic assertions and/or passed critical points prove the exact requested state. Related content on a broader page is not proof when the task names a dedicated control or view: activate it and verify the resulting URL, title, heading, or value.",
       execute: (input) => context.record("finish_test", input, async () => {
         const requestedStatus = input.status === "passed" ? "passed" : "failed";
         const reason = String(input.reason ?? "No reason provided.");

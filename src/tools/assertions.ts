@@ -15,7 +15,7 @@ export function createAssertionTools(context: BrowserToolContext): NativeToolBri
   return [
     {
       name: "browser_expect_text",
-      description: "Assert that visible text appears on the page, or inside a target element when target is given. Retries until timeoutMs.",
+      description: "Assert that observed visible text appears on the page, or inside a target element when target is given. Copy an exact phrase from page evidence; rendered whitespace is normalized. Retries until timeoutMs.",
       parameters: {
         type: "object",
         properties: {
@@ -25,24 +25,20 @@ export function createAssertionTools(context: BrowserToolContext): NativeToolBri
         },
         required: ["text"],
       },
-      promptSnippet: "- browser_expect_text: Assert visible text, optionally scoped to a target element. Auto-retries.",
+      promptSnippet: "- browser_expect_text: Assert one exact visible phrase copied from the latest page evidence. Whitespace is normalized, but do not invent connective words or concatenate unrelated fields. Auto-retries.",
       execute: (input) => context.record("browser_expect_text", input, async () => {
         const text = String(input.text ?? "");
         const target = selectorFor(input.target);
         if (target) {
           await assertWithRetry(context.page, input, async () => {
             const actual = await locateTarget(context.page, input.target).innerText({ timeout: READ_TIMEOUT_MS });
-            if (!actual.includes(text)) {
+            if (!normalizeVisibleText(actual).includes(normalizeVisibleText(text))) {
               throw new Error(`Expected ${target} to contain text "${text}", received "${truncate(actual)}"`);
             }
           });
           return { content: `Found text in ${target}: ${text}` };
         }
-        try {
-          await context.page.getByText(text, { exact: false }).first().waitFor({ timeout: timeoutFrom(input) });
-        } catch (error) {
-          throw await describeFailure(context.page, error);
-        }
+        await assertPageContainsText(context.page, input, text);
         return { content: `Found visible text: ${text}` };
       }),
     },
@@ -60,11 +56,7 @@ export function createAssertionTools(context: BrowserToolContext): NativeToolBri
       promptSnippet: "- browser_wait_for_text: Wait for async UI text before continuing.",
       execute: (input) => context.record("browser_wait_for_text", input, async () => {
         const text = String(input.text ?? "");
-        try {
-          await context.page.getByText(text, { exact: false }).first().waitFor({ timeout: timeoutFrom(input) });
-        } catch (error) {
-          throw await describeFailure(context.page, error);
-        }
+        await assertPageContainsText(context.page, input, text);
         return { content: `Waited for text: ${text}` };
       }),
     },
@@ -342,6 +334,22 @@ export function createAssertionTools(context: BrowserToolContext): NativeToolBri
       }),
     },
   ];
+}
+
+async function assertPageContainsText(page: Parameters<typeof assertWithRetry>[0], input: Record<string, unknown>, expected: string) {
+  await assertWithRetry(page, input, async () => {
+    // getByText(...).first() can select a hidden duplicate even when another
+    // matching node is visible. innerText reflects rendered page text and
+    // avoids making DOM order decide whether a page-level assertion passes.
+    const actual = await page.locator("body").innerText({ timeout: READ_TIMEOUT_MS });
+    if (!normalizeVisibleText(actual).includes(normalizeVisibleText(expected))) {
+      throw new Error(`Expected page to contain visible text "${expected}", received "${truncate(actual)}"`);
+    }
+  });
+}
+
+function normalizeVisibleText(value: string) {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function truncate(value: string, max = 200) {

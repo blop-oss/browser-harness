@@ -4,6 +4,7 @@ import { locateReference } from "./references.js";
 export type BrowserTarget = string | {
   ref?: string;
   selector?: string;
+  id?: string;
   text?: string;
   label?: string;
   placeholder?: string;
@@ -20,17 +21,19 @@ export const targetParameterSchema = {
     {
       type: "object",
       properties: {
-        ref: { type: "string", description: "Snapshot-scoped element reference returned by browser_snapshot." },
+        ref: { type: "string", description: "Opaque element reference returned by browser_snapshot. Copy it verbatim; never edit or predict its digits." },
         selector: { type: "string" },
+        id: { type: "string", description: "Exact DOM id, such as one returned in focusedElement.id." },
         text: { type: "string" },
         label: { type: "string" },
         placeholder: { type: "string" },
         testId: { type: "string" },
-        role: { type: "string" },
+        role: { type: "string", pattern: "^[a-z][a-z0-9-]*$" },
         name: { type: "string" },
         exact: { type: "boolean" },
         first: { type: "boolean" },
       },
+      additionalProperties: false,
     },
   ],
 } satisfies Record<string, unknown>;
@@ -61,6 +64,7 @@ export function locateTarget(page: Page, target: unknown) {
     const exact = Boolean(structured.exact);
     const locator = structured.ref ? locateReference(page, structured.ref)
       : structured.selector ? safeLocator(page, structured.selector)
+      : structured.id ? page.locator(`[id="${escapeCssString(structured.id)}"]`)
       : structured.testId ? page.getByTestId(structured.testId)
       : structured.label ? page.getByLabel(structured.label, { exact })
       : structured.placeholder ? page.getByPlaceholder(structured.placeholder, { exact })
@@ -74,6 +78,13 @@ export function locateTarget(page: Page, target: unknown) {
 
   const targetText = selectorFor(target);
   return candidatesFor(page, targetText).reduce((combined, candidate) => combined.or(candidate)).first();
+}
+
+function escapeCssString(value: string) {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\r\n|\r|\n/g, "\\a ");
 }
 
 /**

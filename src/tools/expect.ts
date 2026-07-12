@@ -43,7 +43,7 @@ function clampTimeout(timeoutMs: number | undefined) {
 
 /**
  * Run an assertion with retry semantics, and on final failure attach page
- * context (URL, title, trimmed ARIA snapshot) so the agent's next step is
+ * context (URL, title, trimmed visible text) so the agent's next step is
  * informed — the equivalent of Vitest printing the DOM under a failed matcher.
  * Playwright call logs are stripped first; they are noisy for an LLM.
  */
@@ -64,19 +64,16 @@ export async function describeFailure(page: Page, error: unknown): Promise<Error
   const message = original.split("\nCall log:")[0].trim();
   try {
     const title = await page.title().catch(() => "");
-    const aria = await readTrimmedAriaSnapshot(page);
+    const text = await readTrimmedPageText(page);
     const context = `${page.url()}${title ? ` — ${title}` : ""}`;
-    return new Error(`${message}\n\nPage context: ${context}${aria ? `\nARIA snapshot (trimmed):\n${aria}` : ""}`);
+    return new Error(`${message}\n\nPage context: ${context}${text ? `\nVisible text (trimmed):\n${text}` : ""}`);
   } catch {
     return error instanceof Error ? error : new Error(original);
   }
 }
 
-async function readTrimmedAriaSnapshot(page: Page) {
-  const body = page.locator("body");
-  const withSnapshot = body as typeof body & { ariaSnapshot?: (options?: { timeout?: number }) => Promise<string> };
-  if (!withSnapshot.ariaSnapshot) return "";
-  const aria = await withSnapshot.ariaSnapshot({ timeout: 1000 }).catch(() => "");
-  const lines = aria.split("\n");
-  return lines.length > 40 ? `${lines.slice(0, 40).join("\n")}\n…` : aria;
+async function readTrimmedPageText(page: Page) {
+  const text = await page.locator("body").innerText({ timeout: 1000 }).catch(() => "");
+  const compact = text.replace(/\s+/g, " ").trim();
+  return compact.length > 2000 ? `${compact.slice(0, 2000)}…` : compact;
 }

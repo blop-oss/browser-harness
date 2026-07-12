@@ -10,6 +10,7 @@ import {
 } from "../../benchmarks/mind2web/core.js";
 import { createTempDir } from "../fixtures/files.js";
 import { startFixtureServer } from "../fixtures/server.js";
+import { summarizeMind2WebMetrics } from "../../benchmarks/mind2web/metrics.js";
 
 describe("Mind2Web benchmark", () => {
   test("loads and filters normalized tasks", async () => {
@@ -66,7 +67,60 @@ describe("Mind2Web benchmark", () => {
   });
 
   test("builds a host-neutral task prompt", () => {
-    expect(buildMind2WebPrompt(task())).toContain("call finish_test");
+    const prompt = buildMind2WebPrompt(task());
+    expect(prompt).toContain("call finish_test");
+    expect(prompt).toContain("copy exact URLs, titles, and visible phrases");
+    expect(prompt).toContain("never reuse a ref from the previous page");
+    expect(prompt).toContain("one final browser_snapshot");
+  });
+
+  test("counts recorded action errors missing from runner events", () => {
+    const metrics = summarizeMind2WebMetrics({
+      results: [{
+        status: "passed",
+        actions: [
+          { name: "browser_snapshot" },
+          { name: "browser_type", metadata: { error: "fill failed" } },
+          { name: "finish_test" },
+        ],
+      }],
+    }, [
+      { event_type: "usage", metadata: { input: 10, output: 2 } },
+    ]);
+
+    expect(metrics.event_tool_errors).toBe(0);
+    expect(metrics.action_tool_errors).toBe(1);
+    expect(metrics.tool_errors).toBe(1);
+    expect(metrics.agent_passed).toBe(1);
+    expect(metrics.evidence_passed).toBe(1);
+    expect(metrics.passed).toBe(0);
+  });
+
+  test("requires configured final-page evidence for a strict pass", () => {
+    const result = (url: string, title: string, text: string) => summarizeMind2WebMetrics({
+      results: [{
+        status: "passed",
+        actions: [
+          { name: "browser_snapshot", output: JSON.stringify({ url, title, text }) },
+          { name: "finish_test" },
+        ],
+      }],
+    }, [], {
+      urlIncludes: "/allenford/weekend",
+      titleIncludes: "Weekend Forecast",
+      textIncludes: "Weekend Forecast Allenford, ON",
+    });
+
+    expect(result(
+      "https://weather.test/allenford/14-days",
+      "14 Day Forecast",
+      "Weekend Forecast Allenford, ON",
+    ).passed).toBe(0);
+    expect(result(
+      "https://weather.test/allenford/weekend",
+      "Weekend Forecast",
+      "Weekend Forecast\nAllenford, ON",
+    ).passed).toBe(1);
   });
 });
 

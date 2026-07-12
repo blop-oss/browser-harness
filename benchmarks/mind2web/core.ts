@@ -71,7 +71,12 @@ export function buildMind2WebPrompt(task: Mind2WebTask): string {
   return (
     `On ${task.start_url}, complete this task the way a real user would:\n\n` +
     `${task.task}\n\n` +
-    "Work step by step using the live page. When the task is complete, call " +
+    "Work step by step using the live page. Tool errors invalidate the run: " +
+    "copy exact URLs, titles, and visible phrases already reported by the tools; " +
+    "do not invent connective text. After navigation, never reuse a ref from the " +
+    "previous page—take a fresh snapshot or omit an optional target. Immediately before " +
+    "finishing, take one final browser_snapshot after the last state-changing action; " +
+    "the automated evaluator uses that observation as final-page evidence. When the task is complete, call " +
     "finish_test with passed status. If the site is unreachable or the task is " +
     "blocked by a login, paywall, or captcha, call finish_test with failed status " +
     "and a short reason."

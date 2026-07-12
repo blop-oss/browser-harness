@@ -19,7 +19,13 @@ export function createNavigationTools(context: BrowserToolContext): NativeToolBr
           url = new URL(url, context.baseUrl).href;
         }
         await context.page.goto(url, { waitUntil: "domcontentloaded" });
-        return { content: `Navigated to ${url}`, metadata: { url: context.page.url() } };
+        // Many production pages mount consent, auth, or hydration surfaces
+        // between DOMContentLoaded and the final load event. Give that phase a
+        // bounded chance to settle so the first snapshot does not advertise a
+        // control that will be covered before the model can act on it.
+        const loadSettled = await context.page.waitForLoadState("load", { timeout: 5000 })
+          .then(() => true, () => false);
+        return { content: `Navigated to ${url}`, metadata: { url: context.page.url(), loadSettled } };
       }),
     },
     {
@@ -44,7 +50,7 @@ export function createNavigationTools(context: BrowserToolContext): NativeToolBr
         },
         required: ["url"],
       },
-      promptSnippet: "- browser_expect_url: Assert current URL, using exact=false for contains checks. Auto-retries.",
+      promptSnippet: "- browser_expect_url: Prefer this after dedicated-view navigation when the exact URL is already reported. Assert current URL, using exact=false for contains checks. Auto-retries.",
       execute: (input) => context.record("browser_expect_url", input, async () => {
         const expected = String(input.url ?? "");
         const exact = Boolean(input.exact);
