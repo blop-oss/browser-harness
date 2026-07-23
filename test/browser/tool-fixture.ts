@@ -1,14 +1,24 @@
+import { afterAll } from "bun:test";
 import { chromium, type Browser, type Page } from "playwright";
 import { createBrowserTools } from "../../src/create-tools.js";
 import type { HarnessAction } from "../../src/types.js";
-import { startFixtureServer } from "../fixtures/server.js";
+import { startFixtureServer, type FixtureRoute } from "../fixtures/server.js";
 
-export async function setupToolPage(body: string) {
+let sharedBrowser: Browser | undefined;
+
+afterAll(async () => {
+  await sharedBrowser?.close();
+  sharedBrowser = undefined;
+});
+
+export async function setupToolPage(body: string, extraRoutes: FixtureRoute[] = []) {
   const server = await startFixtureServer([
     { path: "/", body },
     { path: "/next", body: `<h1>Next page</h1>` },
+    ...extraRoutes,
   ]);
-  let browser: Browser | undefined = await chromium.launch({ headless: true });
+  if (!sharedBrowser?.isConnected()) sharedBrowser = await chromium.launch({ headless: true });
+  const browser = sharedBrowser;
   const context = await browser.newContext({ bypassCSP: true });
   const page = await context.newPage();
   const pages: Page[] = [page];
@@ -37,8 +47,7 @@ export async function setupToolPage(body: string) {
     tools,
     serverUrl: server.url,
     cleanup: async () => {
-      await browser?.close();
-      browser = undefined;
+      await context.close();
       await server.close();
     },
   };

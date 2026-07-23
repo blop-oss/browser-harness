@@ -38,4 +38,31 @@ describe("navigation and wait browser tools", () => {
       await fixture.cleanup();
     }
   }, 15000);
+
+  test("waits for active-page network requests to become idle", async () => {
+    const fixture = await setupToolPage(
+      `<button onclick="fetch('/slow').then(() => this.dataset.loaded='true')">Load data</button>`,
+      [{
+        path: "/slow",
+        body: "ok",
+        onRequest: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        },
+      }],
+    );
+
+    try {
+      await tool(fixture.tools, "browser_click").execute({ target: { role: "button", name: "Load data" } });
+      const started = Date.now();
+      const result = await tool(fixture.tools, "browser_wait_for_network_idle").execute({
+        timeoutMs: 2000,
+        idleMs: 100,
+      });
+      expect(Date.now() - started).toBeGreaterThanOrEqual(80);
+      expect(result.metadata?.inflightRequests).toBe(0);
+      expect(await fixture.page.getByRole("button").getAttribute("data-loaded")).toBe("true");
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 15000);
 });

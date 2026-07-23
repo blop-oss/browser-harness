@@ -55,6 +55,58 @@ describe("assertion browser tools", () => {
     }
   }, 15000);
 
+  test("accepts structured targets when waiting for an element to become hidden", async () => {
+    const fixture = await setupToolPage(`<button aria-label="Dismiss">Close</button>`);
+
+    try {
+      await fixture.page.getByRole("button", { name: "Dismiss" }).evaluate((element) => {
+        setTimeout(() => element.remove(), 50);
+      });
+      const result = await tool(fixture.tools, "browser_expect_hidden").execute({
+        target: { role: "button", name: "Dismiss" },
+        timeoutMs: 1000,
+      });
+      expect(result.content).toContain("is hidden");
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 15000);
+
+  test("page text assertions ignore a hidden first duplicate", async () => {
+    const fixture = await setupToolPage(`
+      <main>
+        <span hidden>Weekend</span>
+        <h1>Weekend Forecast</h1>
+      </main>
+    `);
+
+    try {
+      await tool(fixture.tools, "browser_expect_text").execute({ text: "Weekend" });
+      await tool(fixture.tools, "browser_wait_for_text").execute({ text: "Weekend" });
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 15000);
+
+  test("page text assertions normalize rendered block whitespace", async () => {
+    const fixture = await setupToolPage(`
+      <main>
+        <h1>Weekend Forecast</h1>
+        <p>Allenford, ON</p>
+      </main>
+    `);
+
+    try {
+      await tool(fixture.tools, "browser_expect_text").execute({ text: "Weekend Forecast Allenford, ON" });
+      await tool(fixture.tools, "browser_expect_text").execute({
+        target: "main",
+        text: "Weekend Forecast Allenford, ON",
+      });
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 15000);
+
   test("asserts attributes and focus, and reports page context on failure", async () => {
     const fixture = await setupToolPage(`
       <main>

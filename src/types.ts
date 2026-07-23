@@ -9,6 +9,7 @@ export type HarnessAction = {
   output: string;
   metadata?: Record<string, unknown>;
   timestamp: string;
+  durationMs: number;
 };
 
 export type HarnessScreenshot = {

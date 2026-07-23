@@ -34,6 +34,32 @@ describe("agent browser tools", () => {
     expect(result?.content).toContain("Example App");
     expect(result?.content).toContain("Start checkout");
     expect(actions[0].name).toBe("browser_snapshot");
+    expect(actions[0].durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  test("snapshot caps large ARIA trees and reports truncation", async () => {
+    const temp = await createTempDir();
+    cleanup = temp.cleanup;
+    const page = createFakePage();
+    page.locator = () => ({
+      innerText: async () => "Example App",
+      ariaSnapshot: async () => "x".repeat(5_000),
+    });
+    const tools = await createBrowserTools({
+      page: page as never,
+      testId: "snapshot-budget",
+      screenshotDir: temp.dir,
+      actions: [],
+      screenshots: [],
+      finishState: { status: null, reason: null },
+    });
+
+    const snapshot = tools.find((tool) => tool.name === "browser_snapshot");
+    const result = await snapshot?.execute({ maxAriaChars: 1_000 });
+    const content = JSON.parse(result?.content ?? "{}") as { ariaSnapshot?: string };
+    expect(content.ariaSnapshot?.length).toBeLessThan(1_100);
+    expect(content.ariaSnapshot).toEndWith("...[ARIA snapshot truncated]");
+    expect(result?.metadata?.ariaSnapshotTruncated).toBe(true);
   });
 
   test("finish_test records agent status and reason", async () => {
@@ -81,14 +107,19 @@ describe("agent browser tools", () => {
 });
 
 function createFakePage() {
+  const png = Buffer.alloc(24);
+  png.write("\x89PNG\r\n\x1a\n", 0, "binary");
+  png.writeUInt32BE(800, 16);
+  png.writeUInt32BE(600, 20);
   return {
     url: () => "http://localhost:3000/checkout",
     title: async () => "Example App",
+    on: () => undefined,
+    viewportSize: () => ({ width: 800, height: 600 }),
+    evaluate: async () => ({ x: 0, y: 0, width: 800, height: 600 }),
     locator: () => ({
       innerText: async () => "Example App Start checkout Cart is empty",
     }),
-    screenshot: async ({ path }: { path: string }) => {
-      await Bun.write(path, "fake-png");
-    },
+    screenshot: async () => png,
   };
 }

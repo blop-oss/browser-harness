@@ -10,8 +10,12 @@
       "default": "./dist/index.js"
     }
   },
+  "bin": {
+    "blop-browser": "./dist/cli.js"
+  },
   "files": [
     "dist",
+    "skills",
     "README.md",
     "LICENSE"
   ],
@@ -36,13 +40,16 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "bun run build && bun test test/browser test/session",
+    "test": "bun run build && bun test test/browser test/session test/benchmarks test/cli",
     "test:browser": "bun test test/browser",
     "test:session": "bun test test/session",
+    "test:benchmarks": "bun test test/benchmarks",
+    "test:cli": "bun test test/cli",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build"
   },
   "dependencies": {
+    "camoufox-js": "0.7.0",
     "playwright": "^1.59.1"
   },
   "devDependencies": {

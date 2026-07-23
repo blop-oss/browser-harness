@@ -1,0 +1,7 @@
+/data/
+.venv/
+__pycache__/
+*.egg-info/
+.python-version
+node_modules/
+.mind2web/

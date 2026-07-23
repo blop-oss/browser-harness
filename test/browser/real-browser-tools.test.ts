@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 import { chromium, type Browser } from "playwright";
 import { createBrowserTools, type FinishState } from "../../src/create-tools.js";
 import type { HarnessAction } from "../../src/types.js";
@@ -54,6 +55,39 @@ describe("real browser agent tools", () => {
       "browser_set_viewport",
       "browser_get_viewport",
     ]);
+  }, 15000);
+
+  test("bounds page screenshots for model-safe evidence", async () => {
+    const server = await startFixtureServer([{
+      path: "/",
+      body: `<main style="width:2400px;height:1600px">Large evidence surface</main>`,
+    }]);
+    closeServer = server.close;
+    browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({ viewport: { width: 2400, height: 1200 } });
+    const page = await context.newPage();
+    const tools = await createBrowserTools({
+      page,
+      testId: "bounded_screenshot",
+      screenshotDir: ".blop-test-screenshots",
+      actions: [],
+      screenshots: [],
+      finishState: { status: null, reason: null },
+    });
+    await tool(tools, "browser_goto").execute({ url: server.url });
+
+    const result = await tool(tools, "browser_screenshot").execute({
+      name: "bounded-model-evidence",
+      fullPage: true,
+      maxDimension: 800,
+    });
+    const png = await readFile(result.content);
+    const width = png.readUInt32BE(16);
+    const height = png.readUInt32BE(20);
+    expect(Math.max(width, height)).toBeLessThanOrEqual(800);
+    expect(result.metadata?.scaled).toBe(true);
+    expect(result.metadata?.pixelWidth).toBe(width);
+    expect(result.metadata?.pixelHeight).toBe(height);
   }, 15000);
 });
 

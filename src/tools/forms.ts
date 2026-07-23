@@ -1,5 +1,6 @@
 import type { BrowserToolContext, NativeToolBridge } from "./types.js";
 import { locateTarget, selectorFor, targetParameterSchema } from "./locators.js";
+import { blockedActionResult } from "./references.js";
 
 export function createFormTools(context: BrowserToolContext): NativeToolBridge[] {
   return [
@@ -14,7 +15,10 @@ export function createFormTools(context: BrowserToolContext): NativeToolBridge[]
       promptSnippet: "- browser_check: Check a checkbox or radio input.",
       execute: (input) => context.record("browser_check", input, async () => {
         const target = selectorFor(input.target);
-        await locateFormTarget(context, input.target).check({ timeout: 5000 });
+        const locator = locateFormTarget(context, input.target);
+        const blockedResult = await blockedActionResult(context.page, locator, "Check");
+        if (blockedResult) return blockedResult;
+        await locator.check({ timeout: 5000 });
         return { content: `Checked ${target}` };
       }),
     },
@@ -29,7 +33,10 @@ export function createFormTools(context: BrowserToolContext): NativeToolBridge[]
       promptSnippet: "- browser_uncheck: Uncheck a checkbox.",
       execute: (input) => context.record("browser_uncheck", input, async () => {
         const target = selectorFor(input.target);
-        await locateFormTarget(context, input.target).uncheck({ timeout: 5000 });
+        const locator = locateFormTarget(context, input.target);
+        const blockedResult = await blockedActionResult(context.page, locator, "Uncheck");
+        if (blockedResult) return blockedResult;
+        await locator.uncheck({ timeout: 5000 });
         return { content: `Unchecked ${target}` };
       }),
     },
@@ -53,7 +60,10 @@ export function createFormTools(context: BrowserToolContext): NativeToolBridge[]
       execute: (input) => context.record("browser_select_option", input, async () => {
         const target = selectorFor(input.target);
         const values = Array.isArray(input.values) ? input.values.map(String) : String(input.values ?? "");
-        await locateFormTarget(context, input.target).selectOption(values, { timeout: 5000 });
+        const locator = locateFormTarget(context, input.target);
+        const blockedResult = await blockedActionResult(context.page, locator, "Selection");
+        if (blockedResult) return blockedResult;
+        await locator.selectOption(values, { timeout: 5000 });
         return { content: `Selected ${JSON.stringify(values)} in ${target}` };
       }),
     },
@@ -77,7 +87,10 @@ export function createFormTools(context: BrowserToolContext): NativeToolBridge[]
       execute: (input) => context.record("browser_upload_file", input, async () => {
         const target = selectorFor(input.target);
         const paths = Array.isArray(input.paths) ? input.paths.map(String) : String(input.paths ?? "");
-        await locateFormTarget(context, input.target).setInputFiles(paths, { timeout: 5000 });
+        const locator = locateFormTarget(context, input.target);
+        const blockedResult = await blockedActionResult(context.page, locator, "Upload");
+        if (blockedResult) return blockedResult;
+        await locator.setInputFiles(paths, { timeout: 5000 });
         return { content: `Uploaded ${JSON.stringify(paths)} into ${target}` };
       }),
     },

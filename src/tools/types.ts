@@ -1,4 +1,4 @@
-import type { Page } from "playwright";
+import type { Page, Request } from "playwright";
 import type {
   HarnessAction,
   HarnessBrowserLog,
@@ -32,6 +32,11 @@ export type NativeToolBridge = {
 export type FinishState = {
   status: TestStatus | null;
   reason: string | null;
+};
+
+export type NetworkActivity = {
+  inflight: Map<Request, string>;
+  lastActivity: number;
 };
 
 export type BrowserToolContext = {
@@ -87,6 +92,8 @@ export type BrowserToolContext = {
    * identity comparisons against entries in `pages` work.
    */
   getActivePage?: () => Page;
+  /** Network requests observed for the active page since tool creation. */
+  getNetworkActivity: () => NetworkActivity;
   record: (
     name: string,
     input: Record<string, unknown>,
