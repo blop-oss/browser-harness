@@ -49,7 +49,7 @@ npm install --global @blopai/browser-harness
 blop-browser open https://example.com
 blop-browser snapshot
 blop-browser expect-text "Example Domain"
-blop-browser click e1
+blop-browser click e6
 blop-browser close
 ```
 
