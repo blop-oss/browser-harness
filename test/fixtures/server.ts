@@ -28,9 +28,9 @@ export async function startFixtureServer(routes: FixtureRoute[]) {
 
   return {
     url: `http://127.0.0.1:${address.port}`,
-    close: () => new Promise<void>((resolve, reject) => {
-      server.close((error) => error ? reject(error) : resolve());
+    close: () => new Promise<void>((resolve) => {
       try { server.closeAllConnections(); } catch {}
+      try { server.close(() => resolve()); } catch { resolve(); }
     }),
   };
 }
