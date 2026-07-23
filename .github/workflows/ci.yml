@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
   pull_request:
+  workflow_call:
 
 permissions:
   contents: read
@@ -43,5 +44,11 @@ jobs:
       - name: Tests (benchmarks)
         run: bun test test/benchmarks
 
+      - name: Tests (CLI)
+        run: bun test test/cli
+
       - name: Tests (Docker session)
         run: bun test test/session
+
+      - name: Verify npm package
+        run: npm pack --dry-run
