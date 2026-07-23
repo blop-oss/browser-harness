@@ -1,17 +1,23 @@
 name: Release @blopai/browser-harness
 
 # Publishes @blopai/browser-harness to npm when a tag like `harness-v0.1.0`
-# is pushed.
+# is pushed. Uses npm trusted publishing (OIDC) — no long-lived tokens needed.
 #
-# Setup required once:
-#   - Add an npm automation token as the `NPM` repository secret.
-#   - The `@blopai` scope/org must exist on npm and the token must be allowed
-#     to publish to it.
+# Setup required once on npmjs.com:
+#   1. Go to your package Settings → Trusted Publishing.
+#   2. Select GitHub Actions and fill in:
+#      - Organization or user: blop-oss
+#      - Repository: browser-harness
+#      - Workflow filename: release.yml
+#      - Allowed actions: npm publish
+#   3. (Recommended) Set Publishing access to
+#      "Require two-factor authentication and disallow tokens".
 #
 # Cut a release:
 #   1. Bump the version in package.json.
 #   2. Commit, then tag: `git tag harness-v0.1.0 && git push origin harness-v0.1.0`.
 # The workflow verifies the tag matches package.json before publishing.
+# Provenance attestations are generated automatically by trusted publishing.
 #
 # @blopai/browser-harness must be published before a @blopai/cli release that
 # depends on it, since the CLI consumes it via `file:` (resolved to a real
@@ -46,20 +52,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: lts/*
-          registry-url: "https://registry.npmjs.org"
+          node-version: '22.14.0'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
-      - name: Verify npm authentication
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM }}
-        run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "::error::Add an npm automation token as the NPM repository secret before releasing."
-            exit 1
-          fi
 
       - name: Verify tag matches package.json version
         run: |
@@ -78,10 +76,11 @@ jobs:
       - name: Verify npm package
         run: npm pack --dry-run
 
-      - name: Publish to npm
-        run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM }}
+      - name: Publish to npm (trusted publishing / OIDC)
+        run: npm publish --access public
+        # No NODE_AUTH_TOKEN — npm CLI auto-detects the OIDC environment
+        # and exchanges the GitHub Actions ID token for a short-lived
+        # publish token. Provenance is generated automatically.
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
