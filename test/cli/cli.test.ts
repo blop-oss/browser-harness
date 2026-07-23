@@ -206,21 +206,9 @@ describe("blop-browser CLI", () => {
       process.exited,
     ]);
 
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(stdout);
-    } catch (error) {
-      console.error("[DEBUG-symlink] exitCode", exitCode);
-      console.error("[DEBUG-symlink] stdout length", stdout.length);
-      console.error("[DEBUG-symlink] stdout first 500", stdout.slice(0, 500));
-      console.error("[DEBUG-symlink] stdout last 200", stdout.slice(-200));
-      console.error("[DEBUG-symlink] stderr", stderr.slice(0, 1000));
-      throw error;
-    }
-
     expect(exitCode).toBe(0);
     expect(stderr.trim()).toBe("");
-    expect(parsed).toEqual(expect.objectContaining({ ok: true }));
+    expect(JSON.parse(stdout)).toEqual(expect.objectContaining({ ok: true }));
   }, 30_000);
 
   test("offers concise browser commands while retaining strict snapshot refs", async () => {

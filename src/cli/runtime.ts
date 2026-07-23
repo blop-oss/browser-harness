@@ -1,4 +1,5 @@
 import { access, mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { createBrowserTools } from "../create-tools.js";
 import type { HarnessAction, HarnessBrowserLog } from "../types.js";
@@ -111,8 +112,12 @@ export async function resolveCamoufoxExecutable() {
     }
   }
   try {
-    const { launchPath } = await import("camoufox-js/dist/pkgman.js");
-    const executablePath = launchPath();
+    const mod = await import("camoufox-js/dist/pkgman.js");
+    const dir = mod.camoufoxPath(false) as string;
+    const file = mod.OS_NAME === "win" ? "camoufox.exe"
+      : mod.OS_NAME === "mac" ? "camoufox"
+      : "camoufox-bin";
+    const executablePath = join(dir.toString(), file);
     await access(executablePath);
     return executablePath;
   } catch {
