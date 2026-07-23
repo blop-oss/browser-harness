@@ -11,6 +11,15 @@ agent framework.
 [![npm](https://img.shields.io/npm/v/@blopai/browser-harness)](https://www.npmjs.com/package/@blopai/browser-harness)
 [![license](https://img.shields.io/npm/l/@blopai/browser-harness)](LICENSE)
 
+Install the agent skill:
+
+```bash
+npx skills add blop-oss/browser-harness --skill browser-harness
+```
+
+Add `-g` for a global install or `-a opencode`, `-a claude-code`, or `-a codex` to
+target one agent.
+
 ```bash
 npm install --global @blopai/browser-harness
 
@@ -141,16 +150,9 @@ passing the flag.
 
 ## Agent skill
 
-Install the bundled skill with
-[Vercel's skills CLI](https://github.com/vercel-labs/skills):
-
-```bash
-npx skills add blop-oss/browser-harness --skill browser-harness
-```
-
-The installer detects supported agents in the current project. Add `-g` for a
-global installation or `-a opencode`, `-a claude-code`, or `-a codex` to target
-one agent.
+The skill install command above uses
+[Vercel's skills CLI](https://github.com/vercel-labs/skills). The installer
+detects supported agents in the current project automatically.
 
 ## Camoufox
 
