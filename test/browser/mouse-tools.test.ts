@@ -19,6 +19,7 @@ describe("mouse browser tools", () => {
   });
 
   test("reports why a target did not become actionable", async () => {
+    console.log("[DEBUG-mouse-timeout] setup:start");
     const fixture = await setupToolPage(`
       <main>
         <button disabled>Submit</button>
@@ -26,29 +27,38 @@ describe("mouse browser tools", () => {
         <div style="position:absolute;left:0;top:60px;width:200px;height:80px">Overlay</div>
       </main>
     `);
+    console.log("[DEBUG-mouse-timeout] setup:done");
 
     try {
+      console.log("[DEBUG-mouse-timeout] disabled-click:start");
       await expect(tool(fixture.tools, "browser_click").execute({
         target: { role: "button", name: "Submit" },
         timeoutMs: 100,
       })).rejects.toThrow("Reason: element is not enabled");
+      console.log("[DEBUG-mouse-timeout] disabled-click:done");
 
       const started = Date.now();
+      console.log("[DEBUG-mouse-timeout] missing-click:start");
       await expect(tool(fixture.tools, "browser_click").execute({
         target: { role: "button", name: "Missing" },
         timeoutMs: 100,
       })).rejects.toThrow("Timeout 100ms exceeded");
       expect(Date.now() - started).toBeLessThan(1000);
+      console.log("[DEBUG-mouse-timeout] missing-click:done");
 
       const hoverStarted = Date.now();
+      console.log("[DEBUG-mouse-timeout] missing-hover:start");
       await expect(tool(fixture.tools, "browser_hover").execute({
         target: { role: "button", name: "Missing" },
         timeoutMs: 100,
       })).rejects.toThrow("Timeout 100ms exceeded");
       expect(Date.now() - hoverStarted).toBeLessThan(1000);
       expect(fixture.actions.slice(-3).every((action) => action.durationMs >= 0)).toBe(true);
+      console.log("[DEBUG-mouse-timeout] missing-hover:done");
     } finally {
+      console.log("[DEBUG-mouse-timeout] cleanup:start");
       await fixture.cleanup();
+      console.log("[DEBUG-mouse-timeout] cleanup:done");
     }
   }, 15000);
 
