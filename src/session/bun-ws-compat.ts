@@ -19,12 +19,16 @@ if (process.versions.bun) {
   try {
     const playwrightDir = dirname(require.resolve("playwright/package.json"));
     const coreDir = dirname(require.resolve("playwright-core/package.json", { paths: [playwrightDir] }));
-    const transport = require(join(coreDir, "lib", "server", "transport.js"));
-    const WebSocketTransport = transport.WebSocketTransport as {
+    let WebSocketTransport: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       connect: (...args: any[]) => Promise<unknown>;
       __blopBunPatched?: boolean;
     };
+    try {
+      WebSocketTransport = require(join(coreDir, "lib", "server", "transport.js")).WebSocketTransport;
+    } catch {
+      WebSocketTransport = require("playwright-core/lib/coreBundle").server.WebSocketTransport;
+    }
 
     if (!WebSocketTransport.__blopBunPatched) {
       const wsModule = require("ws");
