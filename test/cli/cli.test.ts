@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { chromium } from "playwright";
+import { shouldRunFirstConfig } from "../../src/cli.js";
 import { startFixtureServer, type FixtureServer } from "../fixtures/server.js";
 
 type CliResult = {
@@ -13,19 +16,49 @@ type CliResult = {
 let server: FixtureServer | undefined;
 let runtimeDir: string | undefined;
 let session: string | undefined;
+let cdpChrome: Awaited<ReturnType<typeof startCdpChrome>> | undefined;
 
 afterEach(async () => {
   if (runtimeDir && session) {
     await runCli(["--session", session, "close", "--json"], runtimeDir).catch(() => undefined);
+  }
+  if (cdpChrome) {
+    cdpChrome.process.kill();
+    await cdpChrome.process.exited;
   }
   await server?.close();
   if (runtimeDir) await rm(runtimeDir, { recursive: true, force: true });
   server = undefined;
   runtimeDir = undefined;
   session = undefined;
+  cdpChrome = undefined;
 });
 
 describe("blop-browser CLI", () => {
+  test("opens configuration automatically on the first interactive browser command", () => {
+    expect(shouldRunFirstConfig({
+      argv: ["open", "https://example.com"],
+      command: "open",
+      configured: false,
+      json: false,
+      interactive: true,
+    })).toBe(true);
+    expect(shouldRunFirstConfig({
+      argv: ["--headless", "open", "https://example.com"],
+      command: "open",
+      configured: false,
+      json: false,
+      interactive: true,
+    })).toBe(false);
+    expect(shouldRunFirstConfig({
+      argv: ["open", "https://example.com", "--json"],
+      command: "open",
+      configured: false,
+      json: true,
+      interactive: false,
+    })).toBe(false);
+  });
+
   test("keeps one browser session across separate CLI invocations", async () => {
     server = await startFixtureServer([
       { path: "/", body: "<main><h1>Persistent browser</h1><button>Continue</button></main>" },
@@ -189,6 +222,120 @@ describe("blop-browser CLI", () => {
     }));
   });
 
+  test("configures a default harness mode for later commands", async () => {
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-config-"));
+    const configPath = join(runtimeDir, "browser-config.json");
+    const configured = await runCli([
+      "config",
+      "--mode",
+      "chromium-headed",
+      "--json",
+    ], runtimeDir, {
+      BLOP_BROWSER_CONFIG_PATH: configPath,
+      BLOP_BROWSER_HEADLESS: "__UNSET__",
+    });
+
+    expect(configured.result).toEqual(expect.objectContaining({
+      configured: true,
+      configPath,
+      mode: "chromium-headed",
+      browser: "chromium",
+      headless: false,
+      connection: "launch",
+    }));
+    expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual({
+      version: 1,
+      mode: "chromium-headed",
+    });
+
+    const diagnosis = await runCli(["doctor", "--json"], runtimeDir, {
+      BLOP_BROWSER_CONFIG_PATH: configPath,
+      BLOP_BROWSER_HEADLESS: "__UNSET__",
+    });
+    expect(diagnosis.result).toEqual(expect.objectContaining({
+      browser: expect.objectContaining({ name: "chromium", connection: "launch", headless: false }),
+      configuration: { path: configPath, mode: "chromium-headed" },
+    }));
+  });
+
+  test("explicit connection options override conflicting saved and environment defaults", async () => {
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-precedence-"));
+    const configPath = join(runtimeDir, "browser-config.json");
+    await runCli([
+      "config",
+      "--mode",
+      "chrome-cdp",
+      "--cdp-endpoint",
+      "http://127.0.0.1:9222",
+      "--json",
+    ], runtimeDir, {
+      BLOP_BROWSER_CONFIG_PATH: configPath,
+      BLOP_BROWSER_HEADLESS: "__UNSET__",
+    });
+
+    const managed = await runCli(["--headless", "doctor", "--json"], runtimeDir, {
+      BLOP_BROWSER_CONFIG_PATH: configPath,
+      BLOP_BROWSER_HEADLESS: "__UNSET__",
+    });
+    expect(managed.result?.browser).toEqual(expect.objectContaining({
+      name: "chromium",
+      connection: "launch",
+      headless: true,
+      cdpEndpoint: null,
+    }));
+
+    const cdp = await runCli([
+      "--cdp-endpoint",
+      "http://127.0.0.1:9333",
+      "doctor",
+      "--json",
+    ], runtimeDir, {
+      BLOP_BROWSER: "camoufox",
+      BLOP_BROWSER_CONFIG_PATH: configPath,
+      BLOP_BROWSER_HEADLESS: "__UNSET__",
+    });
+    expect(cdp.result?.browser).toEqual(expect.objectContaining({
+      name: "chromium",
+      connection: "cdp",
+      available: true,
+      cdpEndpoint: "http://127.0.0.1:9333",
+    }));
+
+    const camoufox = await runCli(["--browser", "camoufox", "doctor", "--json"], runtimeDir, {
+      BLOP_BROWSER_CDP_ENDPOINT: "http://127.0.0.1:9444",
+      BLOP_BROWSER_CONFIG_PATH: configPath,
+      BLOP_BROWSER_HEADLESS: "__UNSET__",
+    });
+    expect(camoufox.result?.browser).toEqual(expect.objectContaining({
+      name: "camoufox",
+      connection: "launch",
+      cdpEndpoint: null,
+    }));
+  });
+
+  test("requires --mode when config does not have an interactive terminal", async () => {
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-config-"));
+    const process = Bun.spawn(["bun", "src/cli.ts", "config"], {
+      cwd: new URL("../..", import.meta.url).pathname,
+      env: {
+        ...globalThis.process.env,
+        BLOP_BROWSER_CONFIG_PATH: join(runtimeDir, "browser-config.json"),
+        BLOP_BROWSER_RUNTIME_DIR: runtimeDir,
+      },
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stderr, exitCode] = await Promise.all([
+      new Response(process.stderr).text(),
+      process.exited,
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("Interactive configuration requires a terminal");
+    expect(stderr).toContain("chromium-headless");
+  });
+
   test("runs when a package manager invokes the executable through a symlink", async () => {
     runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-link-"));
     const executable = join(runtimeDir, "blop-browser");
@@ -231,22 +378,148 @@ describe("blop-browser CLI", () => {
     const after = await runCli(["--session", session, "snapshot", "--json"], runtimeDir);
     expect(after.result?.content).toContain("After");
   }, 30_000);
+
+  test("connects to Chrome over CDP without closing the external browser", async () => {
+    server = await startFixtureServer([
+      { path: "/", body: "<main><h1>External Chrome</h1></main>" },
+    ]);
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-cdp-"));
+    cdpChrome = await startCdpChrome(join(runtimeDir, "chrome-profile"));
+    session = `cdp-${process.pid}`;
+    const cdpEnvironment = { BLOP_BROWSER_HEADLESS: "__UNSET__" };
+    const setupBrowser = await chromium.connectOverCDP(cdpChrome.endpoint);
+    await setupBrowser.contexts()[0]?.newPage();
+    await setupBrowser.close();
+
+    const configured = await runCli([
+      "config",
+      "--mode",
+      "chrome-cdp",
+      "--cdp-endpoint",
+      cdpChrome.endpoint,
+      "--json",
+    ], runtimeDir, cdpEnvironment);
+    expect(configured.result).toEqual(expect.objectContaining({
+      mode: "chrome-cdp",
+      cdpEndpoint: cdpChrome.endpoint,
+    }));
+
+    const navigation = await runCli([
+      "--session",
+      session,
+      "open",
+      server.url,
+      "--json",
+    ], runtimeDir, cdpEnvironment);
+    expect(navigation.ok).toBe(true);
+
+    const snapshot = await runCli(["--session", session, "snapshot", "--json"], runtimeDir, cdpEnvironment);
+    expect(snapshot.result?.content).toContain("External Chrome");
+
+    const pages = await runCli([
+      "--session",
+      session,
+      "call",
+      "browser_list_pages",
+      "--input",
+      "{}",
+      "--json",
+    ], runtimeDir, cdpEnvironment);
+    expect(pages.result?.content).toContain("2 page(s)");
+
+    const status = await runCli(["--session", session, "status", "--json"], runtimeDir, cdpEnvironment);
+    expect(status.result).toEqual(expect.objectContaining({
+      browser: "chromium",
+      connection: "cdp",
+      url: new URL(server.url).href,
+    }));
+
+    await expect(runCli([
+      "--session",
+      session,
+      "--cdp-endpoint",
+      "http://127.0.0.1:1",
+      "snapshot",
+      "--json",
+    ], runtimeDir, cdpEnvironment)).rejects.toThrow("already uses chromium via cdp");
+
+    const closed = await runCli(["--session", session, "close", "--json"], runtimeDir, cdpEnvironment);
+    expect(closed.ok).toBe(true);
+    expect(cdpChrome.process.exitCode).toBeNull();
+  }, 30_000);
 });
+
+async function startCdpChrome(profileDirectory: string) {
+  await mkdir(profileDirectory, { recursive: true });
+  const port = await availablePort();
+  const httpEndpoint = `http://127.0.0.1:${port}`;
+  const process = Bun.spawn([
+    chromium.executablePath(),
+    "--headless=new",
+    "--no-sandbox",
+    "--disable-gpu",
+    `--remote-debugging-port=${port}`,
+    "--remote-debugging-address=127.0.0.1",
+    "--remote-allow-origins=*",
+    `--user-data-dir=${profileDirectory}`,
+    "about:blank",
+  ], {
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (process.exitCode !== null) throw new Error(`Chrome exited with code ${process.exitCode}.`);
+    try {
+      const response = await fetch(`${httpEndpoint}/json/version`);
+      if (response.ok) {
+        const version = await response.json() as { webSocketDebuggerUrl?: string };
+        if (version.webSocketDebuggerUrl) return { endpoint: version.webSocketDebuggerUrl, process };
+      }
+    } catch {}
+    await Bun.sleep(100);
+  }
+  process.kill();
+  await process.exited;
+  throw new Error("Chrome CDP endpoint did not become ready.");
+}
+
+async function availablePort() {
+  return await new Promise<number>((resolve, reject) => {
+    const server = createNetServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        server.close();
+        reject(new Error("Could not allocate a CDP port."));
+        return;
+      }
+      server.close((error) => error ? reject(error) : resolve(address.port));
+    });
+  });
+}
 
 async function runCli(
   args: string[],
   stateDir: string,
   environment: Record<string, string> = {},
 ): Promise<CliResult> {
+  const childEnvironment = {
+    ...globalThis.process.env,
+    BLOP_BROWSER_CONFIG_PATH: join(stateDir, "browser-config.json"),
+    BLOP_BROWSER_RUNTIME_DIR: stateDir,
+    BLOP_BROWSER_HEADLESS: "1",
+    BLOP_BROWSER_IDLE_TIMEOUT_MS: "60000",
+    ...environment,
+  };
+  if (childEnvironment.BLOP_BROWSER_HEADLESS === "__UNSET__") {
+    delete childEnvironment.BLOP_BROWSER_HEADLESS;
+  }
   const process = Bun.spawn(["bun", "src/cli.ts", ...args], {
     cwd: new URL("../..", import.meta.url).pathname,
-    env: {
-      ...globalThis.process.env,
-      BLOP_BROWSER_RUNTIME_DIR: stateDir,
-      BLOP_BROWSER_HEADLESS: "1",
-      BLOP_BROWSER_IDLE_TIMEOUT_MS: "60000",
-      ...environment,
-    },
+    env: childEnvironment,
     stdout: "pipe",
     stderr: "pipe",
   });

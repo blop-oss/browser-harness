@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { closeSync, openSync, realpathSync } from "node:fs";
 import { constants } from "node:fs";
-import { access, copyFile, mkdir, readFile, rm } from "node:fs/promises";
+import { access, chmod, copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   daemonIsHealthy,
@@ -47,30 +48,71 @@ Usage:
   blop-browser [--session NAME] close [--json]
   blop-browser skill show
   blop-browser skill install --target agents|claude|opencode|all [--scope project|user]
+  blop-browser config [--mode MODE] [--json]
   blop-browser install camoufox [--json]
   blop-browser doctor [--json]
 
 Global options:
   --session NAME                 Reuse an isolated persistent session
   --browser chromium|camoufox   Select the browser for a new session
+  --cdp-endpoint URL            Connect to a running Chrome over CDP
+  --headless                    Run a new managed browser without a window
+  --headed                      Run a new managed browser with a window
   --json                         Print a machine-readable response envelope
 
 The first tool call starts a persistent local daemon. Later invocations with the
 same session name reuse its Playwright browser and semantic element references.
+
+Configuration modes:
+  chromium-headless | chromium-headed | chrome-cdp
+  camoufox-headless | camoufox-headed
 `;
 
 type ParsedArgs = {
   session: string;
   browser: BrowserName;
+  cdpEndpoint?: string;
+  connection?: "launch" | "cdp";
+  headless: boolean;
   json: boolean;
   command: string;
   rest: string[];
 };
 
+const INSTALL_MODES = [
+  "chromium-headless",
+  "chromium-headed",
+  "chrome-cdp",
+  "camoufox-headless",
+  "camoufox-headed",
+] as const;
+
+type InstallMode = typeof INSTALL_MODES[number];
+
+type BrowserConfig = {
+  version: 1;
+  mode: InstallMode;
+  cdpEndpoint?: string;
+};
+
 export async function main(argv = process.argv.slice(2)) {
-  const parsed = parseArgs(argv);
+  const configPath = browserConfigPath();
+  let config = await readBrowserConfig(configPath);
+  let parsed = parseArgs(argv, config);
+  if (shouldRunFirstConfig({
+    argv,
+    command: parsed.command,
+    configured: Boolean(config),
+    json: parsed.json,
+    interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+  })) {
+    await runConfigCommand({ ...parsed, command: "config", rest: [] }, configPath);
+    config = await readBrowserConfig(configPath);
+    parsed = parseArgs(argv, config);
+  }
+  process.env.BLOP_BROWSER_HEADLESS = parsed.headless ? "1" : "0";
   if (parsed.command === "_daemon") {
-    await runDaemon(parsed.session, parsed.browser);
+    await runDaemon(parsed.session, parsed.browser, parsed.cdpEndpoint);
     return;
   }
   if (!parsed.command || parsed.command === "help" || parsed.command === "--help" || parsed.command === "-h") {
@@ -83,12 +125,16 @@ export async function main(argv = process.argv.slice(2)) {
     return;
   }
 
+  if (parsed.command === "config") {
+    await runConfigCommand(parsed, configPath);
+    return;
+  }
+
   if (parsed.command === "install") {
-    const browser = parsed.rest[0];
-    if (browser !== "camoufox") throw new Error("Usage: blop-browser install camoufox");
+    if (parsed.rest[0] !== "camoufox") throw new Error("Usage: blop-browser install camoufox");
     const executablePath = await installCamoufox();
     printResponse(okResponse("install", {
-      browser,
+      browser: "camoufox",
       installed: true,
       executablePath,
     }), parsed.json);
@@ -106,9 +152,11 @@ export async function main(argv = process.argv.slice(2)) {
     printResponse(okResponse("doctor", {
       browser: {
         name: parsed.browser,
-        available: Boolean(executablePath),
+        connection: parsed.connection ?? "launch",
+        available: parsed.connection === "cdp" || Boolean(executablePath),
         executablePath: executablePath ?? null,
-        headless: process.env.BLOP_BROWSER_HEADLESS !== "0",
+        headless: parsed.connection === "cdp" ? null : process.env.BLOP_BROWSER_HEADLESS !== "0",
+        cdpEndpoint: parsed.cdpEndpoint ?? null,
       },
       browsers: {
         chromium: { available: Boolean(chromiumPath), executablePath: chromiumPath ?? null },
@@ -118,6 +166,10 @@ export async function main(argv = process.argv.slice(2)) {
         session: parsed.session,
         active,
         pid: active ? endpoint?.pid : null,
+      },
+      configuration: {
+        path: configPath,
+        mode: config?.mode ?? null,
       },
       runtimeDirectory: pathsForSession(parsed.session).directory,
     }), parsed.json);
@@ -134,20 +186,20 @@ export async function main(argv = process.argv.slice(2)) {
     if (!name) throw new Error("Usage: blop-browser call TOOL --input JSON");
     const rawInput = optionValue(parsed.rest.slice(1), "--input") ?? "{}";
     const input = parseObject(rawInput, "--input");
-    const endpoint = await ensureDaemon(parsed.session, parsed.browser);
+    const endpoint = await ensureDaemon(parsed.session, parsed.browser, parsed.connection, parsed.cdpEndpoint);
     response = await requestDaemon(endpoint, "call_tool", { name, input });
   } else if (parsed.command === "tools") {
-    const endpoint = await ensureDaemon(parsed.session, parsed.browser);
+    const endpoint = await ensureDaemon(parsed.session, parsed.browser, parsed.connection, parsed.cdpEndpoint);
     response = await requestDaemon(endpoint, "list_tools");
   } else if (parsed.command === "describe") {
     const name = parsed.rest[0];
     if (!name) throw new Error("Usage: blop-browser describe TOOL");
-    const endpoint = await ensureDaemon(parsed.session, parsed.browser);
+    const endpoint = await ensureDaemon(parsed.session, parsed.browser, parsed.connection, parsed.cdpEndpoint);
     response = await requestDaemon(endpoint, "describe_tool", { name });
   } else {
     const shortcut = shortcutCall(parsed.command, parsed.rest);
     if (!shortcut) throw new Error(`Unknown command "${parsed.command}". Run blop-browser --help.`);
-    const endpoint = await ensureDaemon(parsed.session, parsed.browser);
+    const endpoint = await ensureDaemon(parsed.session, parsed.browser, parsed.connection, parsed.cdpEndpoint);
     response = await requestDaemon(endpoint, "call_tool", shortcut);
   }
   printResponse(response, parsed.json);
@@ -234,6 +286,95 @@ async function runSkillCommand(args: string[], json: boolean) {
   printResponse(okResponse("skill", { installed }), json);
 }
 
+async function runConfigCommand(parsed: ParsedArgs, configPath: string) {
+  const requestedMode = optionValue(parsed.rest, "--mode");
+  const selection = requestedMode
+    ? { mode: parseInstallMode(requestedMode), cdpEndpoint: parsed.cdpEndpoint }
+    : await promptForInstallMode(parsed.json);
+  const settings = settingsForMode(selection.mode);
+  const cdpEndpoint = selection.mode === "chrome-cdp"
+    ? parseCdpEndpoint(selection.cdpEndpoint ?? "http://127.0.0.1:9222")
+    : undefined;
+
+  let executablePath: string | undefined;
+  let downloaded = false;
+  if (settings.connection === "launch" && settings.browser === "chromium") {
+    executablePath = await resolveBrowserExecutable();
+    if (!executablePath) {
+      throw new Error("Chrome or Chromium was not found. Install Chrome or run `npx playwright install chromium`, then retry.");
+    }
+  } else if (settings.browser === "camoufox") {
+    executablePath = await resolveCamoufoxExecutable();
+    if (!executablePath) {
+      executablePath = await installCamoufox();
+      downloaded = true;
+    }
+  }
+
+  const config: BrowserConfig = {
+    version: 1,
+    mode: selection.mode,
+    ...(cdpEndpoint ? { cdpEndpoint } : {}),
+  };
+  await writeBrowserConfig(configPath, config);
+  printResponse(okResponse("config", {
+    configured: true,
+    configPath,
+    mode: selection.mode,
+    browser: settings.browser,
+    headless: settings.headless,
+    connection: settings.connection,
+    ...(cdpEndpoint ? { cdpEndpoint } : {}),
+    ...(executablePath ? { executablePath, downloaded } : {}),
+  }), parsed.json);
+}
+
+export function shouldRunFirstConfig(input: {
+  argv: string[];
+  command: string;
+  configured: boolean;
+  json: boolean;
+  interactive: boolean;
+}) {
+  const { argv, command, configured, json, interactive } = input;
+  if (configured || json || !interactive) return false;
+  if (["", "help", "--help", "-h", "config", "install", "skill", "doctor", "status", "close", "_daemon"]
+    .includes(command)) return false;
+  return !["--browser", "--cdp-endpoint", "--headless", "--headed"].some((option) => argv.includes(option));
+}
+
+async function promptForInstallMode(json: boolean): Promise<{ mode: InstallMode; cdpEndpoint?: string }> {
+  if (json || !process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(
+      `Interactive configuration requires a terminal. Use --mode with one of: ${INSTALL_MODES.join(", ")}.`,
+    );
+  }
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    process.stdout.write(`Choose how Browser Harness should run by default:\n\n${[
+      "1. Playwright Chromium, headless (recommended for agents and CI)",
+      "2. Playwright Chromium, visible (local debugging)",
+      "3. Existing Chrome over CDP (reuse its profile, cookies, and tabs)",
+      "4. Camoufox, headless (anti-detect; downloads a third-party browser)",
+      "5. Camoufox, visible (anti-detect; downloads a third-party browser)",
+    ].join("\n")}\n\n`);
+    const answer = (await prompt.question("Mode [1]: ")).trim() || "1";
+    const mode = INSTALL_MODES[Number(answer) - 1];
+    if (!mode) throw new Error("Choose a number from 1 to 5.");
+    if (mode === "chrome-cdp") {
+      const endpoint = (await prompt.question("Chrome CDP endpoint [http://127.0.0.1:9222]: ")).trim();
+      return { mode, cdpEndpoint: endpoint || "http://127.0.0.1:9222" };
+    }
+    if (mode.startsWith("camoufox")) {
+      const confirmation = (await prompt.question("Download Camoufox if it is not installed? [y/N]: ")).trim();
+      if (!/^y(?:es)?$/i.test(confirmation)) throw new Error("Camoufox setup cancelled.");
+    }
+    return { mode };
+  } finally {
+    prompt.close();
+  }
+}
+
 function skillRoots(target: string, scope: string, projectDirectory: string) {
   const agents = scope === "user"
     ? join(homedir(), ".agents", "skills")
@@ -251,20 +392,110 @@ function skillRoots(target: string, scope: string, projectDirectory: string) {
   return [agents, claude];
 }
 
-function parseArgs(argv: string[]): ParsedArgs {
+function parseArgs(argv: string[], config: BrowserConfig | null): ParsedArgs {
   const args = [...argv];
   const session = optionValue(args, "--session") ?? process.env.BLOP_BROWSER_SESSION ?? "default";
   removeOption(args, "--session");
-  const browser = parseBrowserName(optionValue(args, "--browser") ?? process.env.BLOP_BROWSER ?? "chromium");
+  const configured = config ? settingsForMode(config.mode) : undefined;
+  const cliBrowser = optionValue(args, "--browser");
+  const cliCdpEndpoint = optionValue(args, "--cdp-endpoint");
+  const headlessFlag = removeFlag(args, "--headless");
+  const headedFlag = removeFlag(args, "--headed");
+  if (headlessFlag && headedFlag) throw new Error("Use either --headless or --headed, not both.");
+  const cliLaunchOverride = Boolean(cliBrowser || headlessFlag || headedFlag);
+  const browserOverride = cliBrowser ?? (cliCdpEndpoint ? "chromium" : process.env.BLOP_BROWSER);
+  const cdpOverride = cliCdpEndpoint
+    ?? (!cliLaunchOverride ? process.env.BLOP_BROWSER_CDP_ENDPOINT : undefined);
+  const browser = parseBrowserName(browserOverride ?? (cdpOverride ? "chromium" : configured?.browser) ?? "chromium");
   removeOption(args, "--browser");
+  const environmentLaunchOverride = Boolean(process.env.BLOP_BROWSER || process.env.BLOP_BROWSER_HEADLESS !== undefined);
+  const cdpEndpoint = parseCdpEndpoint(
+    cdpOverride
+      ?? (!cliLaunchOverride && !environmentLaunchOverride && config?.mode === "chrome-cdp"
+        ? config.cdpEndpoint
+        : undefined),
+  );
+  removeOption(args, "--cdp-endpoint");
+  const configuredHeadless = configured?.headless ?? true;
+  const headless = headlessFlag ? true
+    : headedFlag ? false
+    : process.env.BLOP_BROWSER_HEADLESS !== undefined
+    ? process.env.BLOP_BROWSER_HEADLESS !== "0"
+    : configuredHeadless;
   const json = removeFlag(args, "--json");
   validateSessionName(session);
-  return { session, browser, json, command: args.shift() ?? "", rest: args };
+  const command = args.shift() ?? "";
+  if (command !== "config" && cdpEndpoint && browser !== "chromium") {
+    throw new Error("--cdp-endpoint only supports Chromium-based browsers.");
+  }
+  const connection = cdpEndpoint ? "cdp"
+    : cliLaunchOverride || environmentLaunchOverride || (config && config.mode !== "chrome-cdp")
+    ? "launch"
+    : undefined;
+  return { session, browser, cdpEndpoint, connection, headless, json, command, rest: args };
+}
+
+function parseInstallMode(value: string): InstallMode {
+  if ((INSTALL_MODES as readonly string[]).includes(value)) return value as InstallMode;
+  throw new Error(`--mode must be one of: ${INSTALL_MODES.join(", ")}.`);
+}
+
+function settingsForMode(mode: InstallMode): {
+  browser: BrowserName;
+  headless: boolean;
+  connection: "launch" | "cdp";
+} {
+  return {
+    browser: mode.startsWith("camoufox") ? "camoufox" : "chromium",
+    headless: mode.endsWith("headless"),
+    connection: mode === "chrome-cdp" ? "cdp" : "launch",
+  };
 }
 
 function parseBrowserName(value: string): BrowserName {
   if (value === "chromium" || value === "camoufox") return value;
   throw new Error("--browser must be chromium or camoufox.");
+}
+
+function parseCdpEndpoint(value: string | undefined) {
+  if (!value) return undefined;
+  let endpoint: URL;
+  try {
+    endpoint = new URL(value);
+  } catch {
+    throw new Error("--cdp-endpoint must be a valid HTTP or WebSocket URL.");
+  }
+  if (!["http:", "https:", "ws:", "wss:"].includes(endpoint.protocol)) {
+    throw new Error("--cdp-endpoint must use HTTP, HTTPS, WS, or WSS.");
+  }
+  return value;
+}
+
+function browserConfigPath() {
+  if (process.env.BLOP_BROWSER_CONFIG_PATH) return resolve(process.env.BLOP_BROWSER_CONFIG_PATH);
+  const root = process.platform === "win32"
+    ? process.env.APPDATA ?? join(homedir(), "AppData", "Roaming")
+    : process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
+  return join(root, "blop-browser", "config.json");
+}
+
+async function readBrowserConfig(path: string): Promise<BrowserConfig | null> {
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf8")) as Partial<BrowserConfig>;
+    if (parsed.version !== 1 || typeof parsed.mode !== "string") return null;
+    const mode = parseInstallMode(parsed.mode);
+    const cdpEndpoint = mode === "chrome-cdp" ? parseCdpEndpoint(parsed.cdpEndpoint) : undefined;
+    if (mode === "chrome-cdp" && !cdpEndpoint) return null;
+    return { version: 1, mode, ...(cdpEndpoint ? { cdpEndpoint } : {}) };
+  } catch {
+    return null;
+  }
+}
+
+async function writeBrowserConfig(path: string, config: BrowserConfig) {
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+  await chmod(path, 0o600).catch(() => undefined);
 }
 
 function optionValue(args: string[], name: string) {
@@ -300,16 +531,30 @@ function parseObject(raw: string, source: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-async function ensureDaemon(session: string, browser: BrowserName): Promise<DaemonEndpoint> {
+async function ensureDaemon(
+  session: string,
+  browser: BrowserName,
+  requestedConnection?: "launch" | "cdp",
+  cdpEndpoint?: string,
+): Promise<DaemonEndpoint> {
   const existing = await readEndpoint(session);
   if (existing && await daemonIsHealthy(existing)) {
     const status = await requestDaemon(existing, "status");
     const activeBrowser = status.ok
       ? String((status.result as Record<string, unknown> | undefined)?.browser ?? "chromium")
       : "chromium";
-    if (activeBrowser === browser) return existing;
+    const activeConnection = status.ok
+      ? String((status.result as Record<string, unknown> | undefined)?.connection ?? "launch")
+      : "launch";
+    const activeCdpEndpoint = status.ok
+      ? String((status.result as Record<string, unknown> | undefined)?.cdpEndpoint ?? "")
+      : "";
+    const connectionMatches = !requestedConnection || activeConnection === requestedConnection;
+    const endpointMatches = !cdpEndpoint || activeCdpEndpoint === cdpEndpoint;
+    if (activeBrowser === browser && connectionMatches && endpointMatches) return existing;
+    const requestedDescription = requestedConnection ?? "the current connection";
     throw new Error(
-      `Session "${session}" already uses ${activeBrowser}. Close it first or use a different --session before switching to ${browser}.`,
+      `Session "${session}" already uses ${activeBrowser} via ${activeConnection}. Close it first or use a different --session before switching to ${browser} via ${requestedDescription}.`,
     );
   }
   if (existing) await removeEndpoint(session);
@@ -328,7 +573,10 @@ async function ensureDaemon(session: string, browser: BrowserName): Promise<Daem
   try {
     const descriptor = openSync(paths.log, "a", 0o600);
     const { executable, entry } = await daemonEntrypoint(browser);
-    const child = spawn(executable, [entry, "--session", session, "--browser", browser, "_daemon"], {
+    const daemonArgs = [entry, "--session", session, "--browser", browser];
+    if (cdpEndpoint) daemonArgs.push("--cdp-endpoint", cdpEndpoint);
+    daemonArgs.push("_daemon");
+    const child = spawn(executable, daemonArgs, {
       detached: true,
       env: process.env,
       stdio: ["ignore", descriptor, descriptor],
@@ -387,9 +635,9 @@ async function requestWithoutStarting(session: string, method: RpcMethod): Promi
   return await requestDaemon(endpoint, method);
 }
 
-async function runDaemon(session: string, browser: BrowserName) {
+async function runDaemon(session: string, browser: BrowserName, cdpEndpoint?: string) {
   const paths = pathsForSession(session);
-  const runtime = await createHarnessCliRuntime(session, paths.artifacts, browser);
+  const runtime = await createHarnessCliRuntime(session, paths.artifacts, browser, cdpEndpoint);
   let rpc: RpcServer | undefined;
   let closing = false;
   const close = async () => {

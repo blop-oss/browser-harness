@@ -2,7 +2,7 @@
 name: browser-harness
 description: Controls a persistent Playwright browser through the blop-browser CLI for UI verification, interaction, extraction, and screenshots. Use when a task requires a real browser, rendered page state, authenticated interaction, or deterministic web-app evidence.
 license: MIT
-compatibility: Requires the blop-browser executable and a local Chrome, Chromium, Playwright, or optional Camoufox browser. Camoufox requires Node.js 20 or newer.
+compatibility: Requires the blop-browser executable and a local Chrome, Chromium, Playwright, Chrome CDP endpoint, or optional Camoufox browser. Camoufox requires Node.js 20 or newer.
 metadata:
   package: "@blopai/browser-harness"
 ---
@@ -44,7 +44,77 @@ Use `--json` when another program needs a stable machine-readable envelope.
 Use `--session NAME` on every command when work must be isolated from the
 default session.
 
+## Agent-first setup
+
+Agent shell calls are usually non-interactive, so don't expect the terminal
+configuration wizard to appear. Before the first browser task, inspect the
+saved configuration:
+
+```bash
+blop-browser doctor --json
+```
+
+If `configuration.mode` is `null`, ask the user through the agent's question UI
+which mode they prefer. Persist the answer non-interactively before starting a
+browser session:
+
+```bash
+blop-browser config --mode chromium-headless
+blop-browser config --mode chromium-headed
+blop-browser config --mode chrome-cdp --cdp-endpoint http://127.0.0.1:9222
+blop-browser config --mode camoufox-headless
+blop-browser config --mode camoufox-headed
+```
+
+Explain that Camoufox downloads a third-party browser before asking for that
+choice. If asking isn't possible, continue with the safe default of headless
+Chromium. Future agent sessions reuse the saved configuration automatically.
+
+## Existing Chrome over CDP
+
+When the user wants to reuse an existing Chrome profile, cookies, or open tabs,
+connect through a localhost CDP endpoint:
+
+```bash
+google-chrome \
+  --remote-debugging-address=127.0.0.1 \
+  --remote-debugging-port=9222 \
+  --user-data-dir=/tmp/blop-chrome \
+  about:blank
+
+blop-browser --session chrome --cdp-endpoint http://127.0.0.1:9222 snapshot
+blop-browser --session chrome open https://example.com
+```
+
+A normal Chrome window is not automatically CDP-enabled. If `connectOverCDP`
+reports a `404` for `/json/version`, the address is not a DevTools endpoint;
+start Chrome on an unused localhost port or correct the endpoint instead of
+retrying it. Use a dedicated `--user-data-dir` because Chrome may reject a
+second process using an active profile.
+
+The first command attaches to the most recently opened tab. Later commands
+reuse the named connection without repeating the endpoint. If that tab is
+closed outside the harness and a command reports that the target page or
+context has closed, disconnect the stale session or choose a new session name,
+then reconnect with `--cdp-endpoint` and take a fresh snapshot.
+
+Treat the endpoint as privileged access to that profile. Don't expose it on a
+public interface. `blop-browser --session chrome close` disconnects the harness
+without closing Chrome.
+
 ## Browser choice
+
+Run `blop-browser config` when the user wants to choose and save a default
+browser mode interactively. The wizard also runs before the first interactive
+browser command. In a non-interactive environment, pass one of the
+documented modes explicitly, for example:
+
+```bash
+blop-browser config --mode chromium-headless
+blop-browser config --mode chromium-headed
+blop-browser config --mode chrome-cdp --cdp-endpoint http://127.0.0.1:9222
+blop-browser config --mode camoufox-headless
+```
 
 Use Chromium by default. Camoufox is an optional third-party anti-detect
 Firefox distribution for sites that reject automated Chromium traffic. A
@@ -82,9 +152,12 @@ session name. To return to the default browser, omit `--browser` or pass
 3. Inspect the current page with `browser_snapshot`.
 4. Prefer an opaque current `{ "ref": "e1" }` target. Copy refs exactly.
 5. Handle visible dialogs or blockers before acting on occluded controls.
-6. Use `browser_extract` for bounded data and `browser_expect_*` for proof.
-7. Capture screenshots only when visual evidence adds value.
-8. Call `finish_test` only after the requested result is proven.
+6. Take another snapshot after dismissing a dialog because its refs are stale.
+7. For ads or timed media, wait only as needed, then act on a visible control;
+   don't invent a skip action when the content may start automatically.
+8. Use `browser_extract` for bounded data and `browser_expect_*` for proof.
+9. Capture screenshots only when visual evidence adds value.
+10. Call `finish_test` only after the requested result is proven.
 
 Do not invent refs, bypass strict ambiguity, execute arbitrary page scripts,
 or hide a failed tool call. Take a new snapshot after navigation or substantial

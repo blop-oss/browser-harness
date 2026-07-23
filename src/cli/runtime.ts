@@ -1,6 +1,7 @@
+import "../session/bun-ws-compat.js";
 import { access, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from "playwright";
 import { createBrowserTools } from "../create-tools.js";
 import type { HarnessAction, HarnessBrowserLog } from "../types.js";
 import type { FinishState, NativeToolBridge } from "../tools/types.js";
@@ -9,6 +10,10 @@ export type BrowserName = "chromium" | "camoufox";
 
 type LaunchedBrowser = {
   browser: Browser;
+  context?: BrowserContext;
+  page?: Page;
+  pages?: Page[];
+  ownsContext?: boolean;
   closeLauncher?: () => Promise<void>;
 };
 
@@ -24,15 +29,19 @@ export async function createHarnessCliRuntime(
   session: string,
   artifactDirectory: string,
   browserName: BrowserName = "chromium",
+  cdpEndpoint?: string,
 ): Promise<HarnessCliRuntime> {
   await mkdir(artifactDirectory, { recursive: true });
   const headless = process.env.BLOP_BROWSER_HEADLESS !== "0";
-  const launched = browserName === "camoufox"
-    ? await launchCamoufox(headless)
-    : await launchChromium(headless);
+  let launched: LaunchedBrowser;
+  if (cdpEndpoint) launched = await connectChromeOverCdp(cdpEndpoint);
+  else if (browserName === "camoufox") launched = await launchCamoufox(headless);
+  else launched = await launchChromium(headless);
   const browser = launched.browser;
-  const context = await browser.newContext({ bypassCSP: true });
-  const page = await context.newPage();
+  const contextOptions: BrowserContextOptions = { bypassCSP: true };
+  if (browserName === "camoufox") contextOptions.viewport = null;
+  const context = launched.context ?? await browser.newContext(contextOptions);
+  const page = launched.page ?? await context.newPage();
   return createRuntimeFromBrowser(
     session,
     artifactDirectory,
@@ -40,6 +49,10 @@ export async function createHarnessCliRuntime(
     browser,
     context,
     page,
+    launched.pages ?? [page],
+    launched.ownsContext ?? true,
+    cdpEndpoint ? "cdp" : "launch",
+    cdpEndpoint,
     launched.closeLauncher,
   );
 }
@@ -47,6 +60,21 @@ export async function createHarnessCliRuntime(
 async function launchChromium(headless: boolean): Promise<LaunchedBrowser> {
   const executablePath = await resolveBrowserExecutable();
   return { browser: await chromium.launch({ headless, ...(executablePath ? { executablePath } : {}) }) };
+}
+
+async function connectChromeOverCdp(endpoint: string): Promise<LaunchedBrowser> {
+  const browser = await chromium.connectOverCDP(endpoint);
+  const existingContext = browser.contexts()[0];
+  const context = existingContext ?? await browser.newContext({ bypassCSP: true });
+  const existingPages = context.pages();
+  const page = existingPages.at(-1) ?? await context.newPage();
+  return {
+    browser,
+    context,
+    page,
+    pages: existingPages.length > 0 ? existingPages : [page],
+    ownsContext: !existingContext,
+  };
 }
 
 async function launchCamoufox(headless: boolean): Promise<LaunchedBrowser> {
@@ -132,16 +160,21 @@ async function createRuntimeFromBrowser(
   browser: Browser,
   context: BrowserContext,
   page: Page,
+  initialPages: Page[],
+  ownsContext: boolean,
+  connection: "launch" | "cdp",
+  cdpEndpoint?: string,
   closeLauncher?: () => Promise<void>,
 ): Promise<HarnessCliRuntime> {
   const actions: HarnessAction[] = [];
   const browserLogs: HarnessBrowserLog[] = [];
   const finishState: FinishState = { status: null, reason: null };
-  const pages: Page[] = [page];
+  const pages: Page[] = [];
   let closed = false;
 
   const attachPage = (candidate: Page) => {
-    if (!pages.includes(candidate)) pages.push(candidate);
+    if (pages.includes(candidate)) return;
+    pages.push(candidate);
     candidate.on("console", (message) => browserLogs.push({
       type: "console",
       level: message.type(),
@@ -164,7 +197,7 @@ async function createRuntimeFromBrowser(
       if (index >= 0) pages.splice(index, 1);
     });
   };
-  attachPage(page);
+  for (const candidate of initialPages) attachPage(candidate);
   context.on("page", attachPage);
 
   const tools = await createBrowserTools({
@@ -199,6 +232,8 @@ async function createRuntimeFromBrowser(
     status: async () => ({
       session,
       browser: browserName,
+      connection,
+      cdpEndpoint: cdpEndpoint ?? null,
       pid: process.pid,
       url: page.url(),
       title: await page.title().catch(() => ""),
@@ -210,7 +245,7 @@ async function createRuntimeFromBrowser(
     close: async () => {
       if (closed) return;
       closed = true;
-      await context.close().catch(() => undefined);
+      if (ownsContext) await context.close().catch(() => undefined);
       await browser.close().catch(() => undefined);
       await closeLauncher?.().catch(() => undefined);
     },
