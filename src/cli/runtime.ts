@@ -176,7 +176,6 @@ async function createRuntimeFromBrowser(
     screenshots: [],
     finishState,
     browserLogs,
-    getNetworkActivity: () => ({ inflight: new Map(), lastActivity: Date.now() }),
   });
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
 

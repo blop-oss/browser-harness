@@ -27,7 +27,7 @@ const OUTCOME_TOOLS = new Set([
 export type { FinishState, NativeToolBridge } from "./tools/types.js";
 
 export async function createBrowserTools(
-  options: Omit<BrowserToolContext, "record" | "screenshotArtifacts" | "criticalPoints" | "setActivePage" | "getActivePage"> & Partial<Pick<BrowserToolContext, "screenshotArtifacts" | "criticalPoints" | "setActivePage" | "getActivePage">>,
+  options: Omit<BrowserToolContext, "record" | "screenshotArtifacts" | "criticalPoints" | "setActivePage" | "getActivePage" | "getNetworkActivity"> & Partial<Pick<BrowserToolContext, "screenshotArtifacts" | "criticalPoints" | "setActivePage" | "getActivePage">>,
 ): Promise<NativeToolBridge[]> {
   await mkdir(options.screenshotDir, { recursive: true });
 
