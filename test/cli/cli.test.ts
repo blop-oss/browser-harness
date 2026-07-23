@@ -206,8 +206,15 @@ describe("blop-browser CLI", () => {
       process.exited,
     ]);
 
+    if (exitCode !== 0 || !stdout.startsWith("{")) {
+      console.error("[DEBUG-symlink] exitCode", exitCode);
+      console.error("[DEBUG-symlink] stdout", JSON.stringify(stdout));
+      console.error("[DEBUG-symlink] stderr", JSON.stringify(stderr));
+    }
+
     expect(exitCode).toBe(0);
     expect(stderr.trim()).toBe("");
+    expect(stdout.startsWith("{")).toBe(true);
     expect(JSON.parse(stdout)).toEqual(expect.objectContaining({ ok: true }));
   }, 30_000);
 
