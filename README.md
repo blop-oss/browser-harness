@@ -20,6 +20,29 @@ npx skills add blop-oss/browser-harness --skill browser-harness
 Add `-g` for a global install or `-a opencode`, `-a claude-code`, or `-a codex` to
 target one agent.
 
+<details>
+<summary><strong>Install through your agent</strong></summary>
+
+Paste this prompt into your agent (Codex, Claude Code, OpenCode, etc.):
+
+````text
+Install the Browser Harness skill and set up the blop-browser CLI:
+
+1. Run: npx skills add blop-oss/browser-harness --skill browser-harness -g
+2. Run: npm install --global @blopai/browser-harness
+3. Run: blop-browser doctor --json
+4. Read the doctor output. If configuration.mode is null, ask me how I want to
+   use the browser and then run the matching config command:
+   - Headless Chromium (agents/CI): blop-browser config --mode chromium-headless
+   - Visible Chromium (local debugging): blop-browser config --mode chromium-headed
+   - Existing Chrome over CDP: blop-browser config --mode chrome-cdp --cdp-endpoint http://127.0.0.1:9222
+   - Camoufox headless (anti-detect): blop-browser config --mode camoufox-headless
+   - Camoufox visible (anti-detect): blop-browser config --mode camoufox-headed
+5. Confirm the setup with: blop-browser open https://example.com && blop-browser snapshot
+````
+
+</details>
+
 ```bash
 npm install --global @blopai/browser-harness
 
