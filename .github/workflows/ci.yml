@@ -34,8 +34,14 @@ jobs:
       - name: Install Playwright browsers
         run: bunx playwright install --with-deps chromium
 
-      - name: Tests (browser + benchmarks)
-        run: bun test test/browser test/benchmarks
+      - name: Tests (browser)
+        run: |
+          for test_file in test/browser/*.test.ts; do
+            bun test "$test_file"
+          done
+
+      - name: Tests (benchmarks)
+        run: bun test test/benchmarks
 
       - name: Tests (Docker session)
         run: bun test test/session
