@@ -146,8 +146,16 @@ its browser, or use another session name to preserve the original state.
 ### Agent skill
 
 The package includes one portable skill that teaches coding agents the CLI
-workflow and strict semantic-reference rules. Install it into the current
-project:
+workflow and strict semantic-reference rules. The `SKILL.md` file follows the
+open [Agent Skills](https://agentskills.io) format used by
+[Codex](https://developers.openai.com/codex/skills),
+[Claude Code](https://code.claude.com/docs/en/skills),
+[OpenCode](https://opencode.ai/docs/skills), Cursor, and 70+ other agents.
+
+#### Install with the blop-browser CLI
+
+The bundled installer copies the skill into a single target directory. Use it
+when you already have `@blopai/browser-harness` installed:
 
 ```bash
 # Codex reads .agents; OpenCode also supports this shared location
@@ -164,10 +172,58 @@ blop-browser skill install --target all
 ```
 
 Use `--scope user` for a user-level installation, or `skill show` to print the
-skill without copying it. The file follows the open Agent Skills format used by
-[Codex](https://developers.openai.com/codex/skills),
-[Claude Code](https://code.claude.com/docs/en/skills), and
-[OpenCode](https://opencode.ai/docs/skills).
+skill without copying it.
+
+#### Install with `npx skills` (cross-agent)
+
+The open [skills CLI](https://github.com/vercel-labs/skills) discovers and
+installs skills across every supported agent from a single command. It
+resolves this repo directly from GitHub (default branch) or a local checkout,
+so it works without installing the package first.
+
+From a local checkout of this repo (works on any branch):
+
+```bash
+# List skills shipped by this repo
+npx skills add ./ --list
+
+# Install into a specific agent's project skills directory
+npx skills add ./ --skill browser-harness -a opencode
+npx skills add ./ --skill browser-harness -a claude-code
+npx skills add ./ --skill browser-harness -a cursor
+
+# Install into every detected agent in the current project
+npx skills add ./ --skill browser-harness
+
+# Global install (~/.config/opencode/skills/, ~/.claude/skills/, …)
+npx skills add ./ --skill browser-harness -g
+
+# Non-interactive (CI/CD friendly)
+npx skills add ./ --skill browser-harness -a opencode -y
+```
+
+Once the skill lands on the default branch, install directly from GitHub
+without a local checkout:
+
+```bash
+npx skills add blop-oss/browser-harness --skill browser-harness -a opencode
+```
+
+The CLI symlinks each agent's skills directory to a canonical copy by default,
+so `npx skills update browser-harness` refreshes every agent at once. Pass
+`--copy` for independent copies when symlinks aren't supported.
+
+Install paths by agent and scope:
+
+| Agent | `--agent` | Project | Global (`-g`) |
+|-------|-----------|---------|---------------|
+| OpenCode | `opencode` | `.agents/skills/` | `~/.config/opencode/skills/` |
+| Claude Code | `claude-code` | `.claude/skills/` | `~/.claude/skills/` |
+| Codex | `codex` | `.agents/skills/` | `~/.codex/skills/` |
+| Cursor | `cursor` | `.agents/skills/` | `~/.cursor/skills/` |
+| GitHub Copilot | `github-copilot` | `.agents/skills/` | `~/.copilot/skills/` |
+
+See `npx skills add --help` for the full list of 70+ supported agents.
 
 This public executable is not the private Blop CLI. It owns browser transport,
 session state, and native tool dispatch only. Agent loops, model providers,
