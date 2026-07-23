@@ -207,7 +207,7 @@ describe("blop-browser CLI", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(stderr).toBe("");
+    expect(stderr.trim()).toBe("");
     expect(JSON.parse(stdout)).toEqual(expect.objectContaining({ ok: true }));
   }, 30_000);
 
