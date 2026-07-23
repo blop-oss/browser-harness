@@ -121,7 +121,7 @@ Use a named session to isolate concurrent agents or workflows:
 ```bash
 blop-browser --session checkout open https://example.com
 blop-browser --session checkout snapshot
-blop-browser --session checkout click e1
+blop-browser --session checkout click e6
 blop-browser --session checkout screenshot checkout --full-page
 blop-browser --session checkout close
 ```
