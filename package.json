@@ -1,6 +1,6 @@
 {
   "name": "@blopai/browser-harness",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Playwright browser harness for AI agents: controlled native tools, sessions, screencast, and optional Docker browser sandbox.",
   "license": "MIT",
   "type": "module",
