@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.svg" width="120" alt="Browser Harness logo" />
+</p>
+
 # Browser Harness
 
 **A persistent browser CLI for AI agents.** Give Codex, Claude Code, OpenCode,
