@@ -1,0 +1,72 @@
+name: Release @blopai/browser-harness
+
+# Publishes @blopai/browser-harness to npm when a tag like `harness-v0.1.0`
+# is pushed.
+#
+# Setup required once:
+#   - Add an npm automation token as the `NPM` repository secret.
+#   - The `@blopai` scope/org must exist on npm and the token must be allowed
+#     to publish to it.
+#
+# Cut a release:
+#   1. Bump the version in package.json.
+#   2. Commit, then tag: `git tag harness-v0.1.0 && git push origin harness-v0.1.0`.
+# The workflow verifies the tag matches package.json before publishing.
+#
+# @blopai/browser-harness must be published before a @blopai/cli release that
+# depends on it, since the CLI consumes it via `file:` (resolved to a real
+# version on publish).
+
+on:
+  push:
+    tags:
+      - "harness-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify tag matches package.json version
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          TAG_VERSION="${GITHUB_REF_NAME#harness-v}"
+          echo "package.json: $PKG_VERSION"
+          echo "git tag:      $TAG_VERSION"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $PKG_VERSION"
+            exit 1
+          fi
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Build
+        run: bun run build
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "@blopai/browser-harness ${{ github.ref_name }}"
+          generate_release_notes: true

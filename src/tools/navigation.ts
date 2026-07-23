@@ -86,6 +86,38 @@ export function createNavigationTools(context: BrowserToolContext): NativeToolBr
       }),
     },
     {
+      name: "browser_wait_for_network_idle",
+      description: "Wait until the active page has no in-flight HTTP requests and remains quiet for idleMs. Use explicitly after SPA submissions or data loading when URL and DOM signals are insufficient; do not use by default on pages with polling or streaming connections.",
+      parameters: {
+        type: "object",
+        properties: {
+          timeoutMs: { type: "number", description: "Maximum wait time in ms (default 10000, max 60000)." },
+          idleMs: { type: "number", description: "Required quiet window in ms (default 500, max 5000)." },
+        },
+      },
+      promptSnippet: "- browser_wait_for_network_idle: Explicitly wait for active-page requests to finish after an SPA submit or async load. Avoid on polling, SSE, or streaming pages.",
+      execute: (input) => context.record("browser_wait_for_network_idle", input, async () => {
+        const timeoutMs = boundedMs(input.timeoutMs, 10_000, 100, 60_000);
+        const idleMs = boundedMs(input.idleMs, 500, 0, 5_000);
+        const activity = context.getNetworkActivity();
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() <= deadline) {
+          if (activity.inflight.size === 0 && Date.now() - activity.lastActivity >= idleMs) {
+            return {
+              content: `Network was idle for ${idleMs}ms`,
+              metadata: { idleMs, timeoutMs, inflightRequests: 0 },
+            };
+          }
+          await new Promise((resolve) => setTimeout(resolve, Math.min(50, Math.max(10, idleMs))));
+        }
+        const pendingUrls = [...activity.inflight.values()].slice(0, 5);
+        throw new Error(
+          `Network did not become idle within ${timeoutMs}ms; ${activity.inflight.size} request(s) remain in flight.`
+          + (pendingUrls.length ? ` Pending: ${pendingUrls.join(", ")}` : ""),
+        );
+      }),
+    },
+    {
       name: "browser_reload",
       description: "Reload the current page.",
       parameters: { type: "object", properties: {} },
@@ -116,4 +148,10 @@ export function createNavigationTools(context: BrowserToolContext): NativeToolBr
       }),
     },
   ];
+}
+
+function boundedMs(value: unknown, fallback: number, min: number, max: number) {
+  const requested = Number(value ?? fallback);
+  if (!Number.isFinite(requested)) return fallback;
+  return Math.min(max, Math.max(min, Math.floor(requested)));
 }

@@ -7,6 +7,7 @@ export type ActionState = {
   dialogs: number;
   alerts: number;
   headings: string;
+  controls: string[];
   contentHash: number;
 };
 
@@ -40,6 +41,24 @@ export async function captureActionState(page: Page): Promise<ActionState | null
         .slice(0, 3)
         .join(" | ")
         .slice(0, 300);
+      const controls = Array.from(document.querySelectorAll<HTMLElement>(
+        "button,input,select,textarea,[role='button'],[role='checkbox'],[role='combobox'],[role='dialog'],[role='alert']",
+      )).filter((element) => {
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+      }).slice(0, 60).map((element) => {
+        const role = element.getAttribute("role") || element.tagName.toLowerCase();
+        const name = element.getAttribute("aria-label")
+          || element.getAttribute("placeholder")
+          || element.innerText
+          || "";
+        const input = element instanceof HTMLInputElement ? element : null;
+        const value = input?.type !== "password" && "value" in element
+          ? String((element as HTMLInputElement).value).slice(0, 80)
+          : "";
+        return `${role} ${JSON.stringify(name.replace(/\s+/g, " ").trim().slice(0, 120))}${value ? ` value=${JSON.stringify(value)}` : ""}`;
+      });
       let contentHash = 0;
       for (let index = 0; index < text.length; index += 1) {
         contentHash = ((contentHash * 31) + text.charCodeAt(index)) | 0;
@@ -50,6 +69,7 @@ export async function captureActionState(page: Page): Promise<ActionState | null
         dialogs: document.querySelectorAll("dialog,[role='dialog']").length,
         alerts: document.querySelectorAll("[role='alert']").length,
         headings,
+        controls,
         contentHash,
       };
     });
@@ -70,6 +90,12 @@ export function describeActionOutcome(before: ActionState | null, after: ActionS
   if (before.headings !== after.headings && after.headings) {
     changes.push(`headings now ${JSON.stringify(after.headings)}`);
   }
+  const beforeControls = new Set(before.controls);
+  const afterControls = new Set(after.controls);
+  const addedControls = after.controls.filter((control) => !beforeControls.has(control)).slice(0, 3);
+  const removedControls = before.controls.filter((control) => !afterControls.has(control)).slice(0, 3);
+  if (addedControls.length) changes.push(`controls added: ${addedControls.join("; ")}`);
+  if (removedControls.length) changes.push(`controls removed: ${removedControls.join("; ")}`);
   if (before.contentHash !== after.contentHash) changes.push("visible page content changed");
   return changes.length ? changes.join("; ") : "no meaningful page-state change detected";
 }

@@ -15,7 +15,7 @@ export function createAssertionTools(context: BrowserToolContext): NativeToolBri
   return [
     {
       name: "browser_expect_text",
-      description: "Assert that observed visible text appears on the page, or inside a target element when target is given. Copy an exact phrase from page evidence; rendered whitespace is normalized. Retries until timeoutMs.",
+      description: "Assert that rendered text from browser_snapshot.text appears on the page, or inside a target element when target is given. Accessible control names and placeholders in semanticSnapshot are not page text; use browser_expect_visible with that control's ref instead. Rendered whitespace is normalized. Retries until timeoutMs.",
       parameters: {
         type: "object",
         properties: {
@@ -25,7 +25,7 @@ export function createAssertionTools(context: BrowserToolContext): NativeToolBri
         },
         required: ["text"],
       },
-      promptSnippet: "- browser_expect_text: Assert one exact visible phrase copied from the latest page evidence. Whitespace is normalized, but do not invent connective words or concatenate unrelated fields. Auto-retries.",
+      promptSnippet: "- browser_expect_text: Assert one exact rendered phrase copied from browser_snapshot.text. Names and placeholders shown only in semanticSnapshot are not visible page text; verify those controls with browser_expect_visible and their ref. Whitespace is normalized. Auto-retries.",
       execute: (input) => context.record("browser_expect_text", input, async () => {
         const text = String(input.text ?? "");
         const target = selectorFor(input.target);
@@ -125,7 +125,7 @@ export function createAssertionTools(context: BrowserToolContext): NativeToolBri
       parameters: {
         type: "object",
         properties: {
-          target: { type: "string" },
+          target: targetParameterSchema,
           timeoutMs: timeoutParameter,
         },
         required: ["target"],

@@ -55,6 +55,23 @@ describe("assertion browser tools", () => {
     }
   }, 15000);
 
+  test("accepts structured targets when waiting for an element to become hidden", async () => {
+    const fixture = await setupToolPage(`<button aria-label="Dismiss">Close</button>`);
+
+    try {
+      await fixture.page.getByRole("button", { name: "Dismiss" }).evaluate((element) => {
+        setTimeout(() => element.remove(), 50);
+      });
+      const result = await tool(fixture.tools, "browser_expect_hidden").execute({
+        target: { role: "button", name: "Dismiss" },
+        timeoutMs: 1000,
+      });
+      expect(result.content).toContain("is hidden");
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 15000);
+
   test("page text assertions ignore a hidden first duplicate", async () => {
     const fixture = await setupToolPage(`
       <main>

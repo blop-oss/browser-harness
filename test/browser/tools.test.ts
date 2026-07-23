@@ -34,6 +34,7 @@ describe("agent browser tools", () => {
     expect(result?.content).toContain("Example App");
     expect(result?.content).toContain("Start checkout");
     expect(actions[0].name).toBe("browser_snapshot");
+    expect(actions[0].durationMs).toBeGreaterThanOrEqual(0);
   });
 
   test("snapshot caps large ARIA trees and reports truncation", async () => {
@@ -106,14 +107,19 @@ describe("agent browser tools", () => {
 });
 
 function createFakePage() {
+  const png = Buffer.alloc(24);
+  png.write("\x89PNG\r\n\x1a\n", 0, "binary");
+  png.writeUInt32BE(800, 16);
+  png.writeUInt32BE(600, 20);
   return {
     url: () => "http://localhost:3000/checkout",
     title: async () => "Example App",
+    on: () => undefined,
+    viewportSize: () => ({ width: 800, height: 600 }),
+    evaluate: async () => ({ x: 0, y: 0, width: 800, height: 600 }),
     locator: () => ({
       innerText: async () => "Example App Start checkout Cart is empty",
     }),
-    screenshot: async ({ path }: { path: string }) => {
-      await Bun.write(path, "fake-png");
-    },
+    screenshot: async () => png,
   };
 }

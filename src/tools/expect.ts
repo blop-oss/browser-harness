@@ -62,14 +62,28 @@ export async function assertWithRetry<T>(
 export async function describeFailure(page: Page, error: unknown): Promise<Error> {
   const original = error instanceof Error ? error.message : String(error);
   const message = original.split("\nCall log:")[0].trim();
+  const actionability = actionabilityReason(original);
   try {
     const title = await page.title().catch(() => "");
     const text = await readTrimmedPageText(page);
     const context = `${page.url()}${title ? ` — ${title}` : ""}`;
-    return new Error(`${message}\n\nPage context: ${context}${text ? `\nVisible text (trimmed):\n${text}` : ""}`);
+    return new Error(`${message}${actionability ? `\nReason: ${actionability}` : ""}\n\nPage context: ${context}${text ? `\nVisible text (trimmed):\n${text}` : ""}`);
   } catch {
     return error instanceof Error ? error : new Error(original);
   }
+}
+
+function actionabilityReason(message: string) {
+  const lines = message
+    .replace(/\x1B\[[0-?]*[ -\/]*[@-~]/g, "")
+    .split("\n")
+    .map((line) => line.replace(/^\s*-\s*/, "").trim());
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (/element is (?:not visible|not stable|not enabled|outside of the viewport)|intercepts pointer events/i.test(lines[index])) {
+      return lines[index];
+    }
+  }
+  return undefined;
 }
 
 async function readTrimmedPageText(page: Page) {

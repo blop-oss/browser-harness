@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { locateReference } from "../../src/tools/references.js";
+import { startFixtureServer } from "../fixtures/server.js";
 import { setupToolPage, tool } from "./tool-fixture";
 
 describe("structured browser targets", () => {
@@ -24,6 +25,96 @@ describe("structured browser targets", () => {
       expect(attribute.content).toBe("save-button");
       expect(text.content).toBe("Ready");
       expect(textById.content).toBe("Ready");
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 15000);
+
+  test("accepts structured targets serialized by a tool transport", async () => {
+    const fixture = await setupToolPage(`
+      <button onclick="this.dataset.clicked='true'">Save</button>
+    `);
+
+    try {
+      const result = await tool(fixture.tools, "browser_snapshot").execute({});
+      const snapshot = JSON.parse(result.content) as { semanticSnapshot: string };
+      const ref = snapshot.semanticSnapshot.match(/\[((?:f\d+)?e\d+)\] button "Save"/)?.[1];
+      expect(ref).toBeDefined();
+
+      await tool(fixture.tools, "browser_click").execute({
+        target: JSON.stringify({ ref }),
+      });
+      expect(await fixture.page.getByRole("button", { name: "Save" }).getAttribute("data-clicked"))
+        .toBe("true");
+
+      await fixture.page.getByRole("button", { name: "Save" }).evaluate((element) => {
+        delete element.dataset.clicked;
+      });
+      await tool(fixture.tools, "browser_click").execute({
+        target: `{ ref: "${ref}" }`,
+      });
+      expect(await fixture.page.getByRole("button", { name: "Save" }).getAttribute("data-clicked"))
+        .toBe("true");
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 15000);
+
+  test("accepts text targets serialized with unquoted object keys", async () => {
+    const fixture = await setupToolPage(`<button onclick="this.dataset.clicked='true'">Open menu</button>`);
+
+    try {
+      await tool(fixture.tools, "browser_click").execute({ target: `{ text: "Open menu" }` });
+      expect(await fixture.page.getByRole("button").getAttribute("data-clicked")).toBe("true");
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 15000);
+
+  test("accepts a bare reference wrapped by a tool transport", async () => {
+    const fixture = await setupToolPage(`<button onclick="this.dataset.clicked='true'">Open menu</button>`);
+
+    try {
+      const result = await tool(fixture.tools, "browser_snapshot").execute({});
+      const snapshot = JSON.parse(result.content) as { semanticSnapshot: string };
+      const ref = snapshot.semanticSnapshot.match(/\[((?:f\d+)?e\d+|x\d+)\] button "Open menu"/)?.[1];
+      expect(ref).toBeDefined();
+
+      await tool(fixture.tools, "browser_click").execute({ target: `{${ref}}` });
+      expect(await fixture.page.getByRole("button").getAttribute("data-clicked")).toBe("true");
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 15000);
+
+  test("fallback refs distinguish controls with duplicate text by role", async () => {
+    const fixture = await setupToolPage(`
+      <button role="tab" style="text-transform:uppercase">Create account</button>
+      <button type="submit" style="text-transform:uppercase" onclick="this.dataset.clicked='true'">Create account</button>
+    `);
+
+    try {
+      const result = await tool(fixture.tools, "browser_snapshot").execute({});
+      const snapshot = JSON.parse(result.content) as { semanticSnapshot: string };
+      const submitRef = snapshot.semanticSnapshot.match(/\[(x\d+)\] button "CREATE ACCOUNT"/)?.[1];
+      expect(submitRef).toMatch(/^x\d+$/);
+
+      await tool(fixture.tools, "browser_click").execute({ target: { ref: submitRef } });
+      expect(await fixture.page.getByRole("tab").getAttribute("data-clicked")).toBeNull();
+      expect(await fixture.page.getByRole("button", { name: "Create account" }).getAttribute("data-clicked"))
+        .toBe("true");
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 15000);
+
+  test("rejects malformed serialized targets instead of parsing them as CSS", async () => {
+    const fixture = await setupToolPage(`<button>Save</button>`);
+
+    try {
+      await expect(tool(fixture.tools, "browser_click").execute({
+        target: '{"unknown":"Save"}',
+      })).rejects.toThrow("Invalid serialized browser target");
     } finally {
       await fixture.cleanup();
     }
@@ -63,6 +154,128 @@ describe("structured browser targets", () => {
       expect(snapshot.semanticSnapshot).toContain('button "Dismiss banner"');
     } finally {
       await fixture.cleanup();
+    }
+  }, 15000);
+
+  test("does not treat a target's shadow host as an occluder", async () => {
+    const fixture = await setupToolPage(`
+      <reddit-search-large></reddit-search-large>
+      <script>
+        const root = document.querySelector('reddit-search-large').attachShadow({ mode: 'open' });
+        root.innerHTML = '<label>Search <input placeholder="Find anything" /></label>';
+      </script>
+    `);
+
+    try {
+      const result = await tool(fixture.tools, "browser_snapshot").execute({});
+      const snapshot = JSON.parse(result.content) as { semanticSnapshot: string };
+      const searchLine = snapshot.semanticSnapshot.split("\n")
+        .find((line) => line.includes('textbox "Search"'));
+      const searchRef = searchLine?.match(/^\[((?:f\d+)?e\d+|x\d+)\]/)?.[1];
+      expect(searchLine).not.toContain("occluded");
+      expect(searchRef).toBeDefined();
+
+      await tool(fixture.tools, "browser_type").execute({
+        target: { ref: searchRef },
+        text: "browser harness",
+      });
+      expect(await fixture.page.locator("input").inputValue()).toBe("browser harness");
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 15000);
+
+  test("does not suggest controls from an unrelated iframe for a same-page blocker", async () => {
+    const fixture = await setupToolPage(`
+      <input aria-label="Search" style="position:fixed;left:20px;top:20px;width:200px;height:40px" />
+      <div aria-label="Search shell" style="position:fixed;left:20px;top:20px;width:200px;height:40px;z-index:2"></div>
+      <iframe srcdoc="<button>Continue with Google</button>" style="position:fixed;right:20px;top:20px"></iframe>
+    `);
+
+    try {
+      await tool(fixture.tools, "browser_snapshot").execute({});
+      const blocked = await tool(fixture.tools, "browser_type").execute({
+        target: { role: "textbox", name: "Search" },
+        text: "blocked",
+      });
+      expect(blocked.metadata?.blocked).toBe(true);
+      expect(blocked.content).toContain("occluded by Search shell");
+      expect(blocked.content).not.toContain("Available frame controls");
+      expect(blocked.content).not.toContain("Continue with Google");
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 15000);
+
+  test("scopes snapshots and preserves actionable shadow-root references", async () => {
+    const fixture = await setupToolPage(`
+      <button>Outside action</button>
+      <section aria-label="Search panel">
+        <p>Only scoped guidance</p>
+        <search-shell></search-shell>
+        <button>Scoped action</button>
+        <button>Second scoped action</button>
+      </section>
+      <script>
+        const root = document.querySelector('search-shell').attachShadow({ mode: 'open' });
+        root.innerHTML = '<label>Query <input placeholder="Find anything" /></label>';
+      </script>
+    `);
+
+    try {
+      const result = await tool(fixture.tools, "browser_snapshot").execute({
+        target: { role: "region", name: "Search panel" },
+        maxElements: 2,
+      });
+      const snapshot = JSON.parse(result.content) as {
+        text: string;
+        scopeSnapshot: string;
+        semanticSnapshot: string;
+        omittedInteractiveElements: number;
+      };
+      expect(snapshot.text).toContain("Only scoped guidance");
+      expect(snapshot.text).not.toContain("Outside action");
+      expect(snapshot.scopeSnapshot).toContain("Only scoped guidance");
+      expect(snapshot.semanticSnapshot).not.toContain("Outside action");
+      expect(snapshot.semanticSnapshot.split("\n")).toHaveLength(2);
+      expect(snapshot.omittedInteractiveElements).toBe(1);
+
+      const queryRef = snapshot.semanticSnapshot.match(/\[((?:f\d+)?e\d+|x\d+)\] textbox "Query"/)?.[1];
+      expect(queryRef).toBeDefined();
+      await tool(fixture.tools, "browser_type").execute({
+        target: { ref: queryRef },
+        text: "browser harness",
+      });
+      expect(await fixture.page.locator("input").inputValue()).toBe("browser harness");
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 15000);
+
+  test("exposes and activates controls in a cross-origin child frame", async () => {
+    const child = await startFixtureServer([{
+      path: "/frame",
+      body: `<button onclick="this.dataset.clicked='true'">Cross-origin action</button>`,
+    }]);
+    const childUrl = child.url.replace("127.0.0.1", "localhost");
+    const fixture = await setupToolPage(`<iframe title="Remote controls" src="${childUrl}/frame"></iframe>`);
+
+    try {
+      await fixture.page.getByTitle("Remote controls").contentFrame().getByRole("button").waitFor();
+      const result = await tool(fixture.tools, "browser_snapshot").execute({});
+      const snapshot = JSON.parse(result.content) as { semanticSnapshot: string };
+      const frameLine = snapshot.semanticSnapshot.split("\n")
+        .find((line) => line.includes('button "Cross-origin action"'));
+      const frameRef = frameLine?.match(/^\[((?:f\d+)?e\d+|x\d+)\]/)?.[1];
+      expect(frameLine).toContain("frame=");
+      expect(frameRef).toBeDefined();
+
+      await tool(fixture.tools, "browser_click").execute({ target: { ref: frameRef } });
+      expect(await fixture.page.getByTitle("Remote controls").contentFrame().getByRole("button").getAttribute("data-clicked"))
+        .toBe("true");
+    } finally {
+      await fixture.cleanup();
+      await child.close();
     }
   }, 15000);
 
@@ -265,6 +478,25 @@ describe("structured browser targets", () => {
       expect(ref).toBeDefined();
 
       await tool(fixture.tools, "browser_goto").execute({ url: `${fixture.serverUrl}/next` });
+      await expect(tool(fixture.tools, "browser_click").execute({ target: { ref } }))
+        .rejects.toThrow("Unknown or stale element reference");
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 15000);
+
+  test("rejects references hidden by a same-page UI update", async () => {
+    const fixture = await setupToolPage(`<button>Sign in</button>`);
+
+    try {
+      const result = await tool(fixture.tools, "browser_snapshot").execute({});
+      const snapshot = JSON.parse(result.content) as { semanticSnapshot: string };
+      const ref = snapshot.semanticSnapshot.match(/\[((?:f\d+)?e\d+|x\d+)\] button "Sign in"/)?.[1];
+      expect(ref).toBeDefined();
+
+      await fixture.page.locator("button").evaluate((element) => {
+        element.style.display = "none";
+      });
       await expect(tool(fixture.tools, "browser_click").execute({ target: { ref } }))
         .rejects.toThrow("Unknown or stale element reference");
     } finally {

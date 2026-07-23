@@ -29,6 +29,12 @@ export type InteractiveReferences = {
   omitted: number;
 };
 
+export type ReferenceCollectionOptions = {
+  root?: Locator;
+  frame?: string;
+  maxElements?: number;
+};
+
 const states = new WeakMap<Page, ReferenceState>();
 const navigationStates = new WeakMap<Page, NavigationState>();
 const MAX_EXPOSED_REFERENCES = 60;
@@ -40,7 +46,10 @@ const INTERACTIVE_SELECTOR = [
   "[role='slider']", "[role='spinbutton']", "[role='switch']", "[role='tab']",
 ].join(",");
 
-export async function collectInteractiveReferences(page: Page): Promise<InteractiveReferences> {
+export async function collectInteractiveReferences(
+  page: Page,
+  options: ReferenceCollectionOptions = {},
+): Promise<InteractiveReferences> {
   const navigationState = getNavigationState(page);
   const previous = states.get(page);
   const snapshot = (previous?.snapshot ?? 0) + 1;
@@ -49,12 +58,16 @@ export async function collectInteractiveReferences(page: Page): Promise<Interact
   const collected: (InteractiveReference & { locator: Locator })[] = [];
   let sequence = 0;
 
-  for (const frame of page.frames()) {
+  const sources = options.root
+    ? [{ frame: page.mainFrame(), locator: options.root.locator(INTERACTIVE_SELECTOR), frameLabel: options.frame }]
+    : page.frames().map((frame) => ({ frame, locator: frame.locator(INTERACTIVE_SELECTOR), frameLabel: undefined }));
+
+  for (const source of sources) {
+    const { frame, locator } = source;
     // ARIA refs are scoped to Playwright's most recent AI snapshot for each
     // frame. Collect them frame-by-frame so equal role/name pairs in sibling
     // iframes can never be zipped together.
     const aiReferences = await collectAiReferenceQueues(frame);
-    const locator = frame.locator(INTERACTIVE_SELECTOR);
     const entries = await locator.evaluateAll((elements) => {
       const modalCandidates = Array.from(document.querySelectorAll(
         "dialog,[role='dialog'][aria-modal='true'],[role='alertdialog'][aria-modal='true']",
@@ -88,6 +101,14 @@ export async function collectInteractiveReferences(page: Page): Promise<Interact
         return nativeModal || (candidate.getAttribute("aria-modal") === "true"
           && (coversViewport(candidate) || suppressesBackground(candidate)));
       }).at(-1);
+      const isShadowHost = (candidate: Element, element: Element) => {
+        let root = element.getRootNode();
+        while (root instanceof ShadowRoot) {
+          if (root.host === candidate) return true;
+          root = root.host.getRootNode();
+        }
+        return false;
+      };
       const receivesPointer = (element: HTMLElement, rect: DOMRect) => {
         if (!(rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth)) return false;
         const insetX = Math.min(Math.max(rect.width * 0.2, 1), 8);
@@ -103,7 +124,7 @@ export async function collectInteractiveReferences(page: Page): Promise<Interact
           const x = Math.max(0, Math.min(innerWidth - 1, rawX));
           const y = Math.max(0, Math.min(innerHeight - 1, rawY));
           const top = document.elementFromPoint(x, y);
-          return Boolean(top && (top === element || element.contains(top)));
+          return Boolean(top && (top === element || element.contains(top) || isShadowHost(top, element)));
         });
       };
 
@@ -200,7 +221,7 @@ export async function collectInteractiveReferences(page: Page): Promise<Interact
 
     for (const entry of entries) {
       sequence += 1;
-      const inChildFrame = frame !== page.mainFrame();
+      const frameLabel = source.frameLabel ?? (frame !== page.mainFrame() ? compactFrame(frame.url()) : undefined);
       const identity = referenceIdentity(entry.role, entry.name);
       const aiQueue = aiReferences.get(identity);
       // Only zip semantic occurrences when both views found the same count.
@@ -226,7 +247,7 @@ export async function collectInteractiveReferences(page: Page): Promise<Interact
         ...(entry.value ? { value: entry.value } : {}),
         ...(entry.href ? { href: entry.href } : {}),
         ...(entry.region ? { region: entry.region } : {}),
-        ...(inChildFrame ? { frame: compactFrame(frame.url()) } : {}),
+        ...(frameLabel ? { frame: frameLabel } : {}),
         ...(entry.states.length ? { states: entry.states } : {}),
         actions: entry.actions,
       };
@@ -239,7 +260,8 @@ export async function collectInteractiveReferences(page: Page): Promise<Interact
 
   collected.sort((left, right) => referencePriority(right) - referencePriority(left));
   const actionable = collected.filter((entry) => !entry.states?.includes("blocked-by-modal"));
-  const exposed = actionable.slice(0, MAX_EXPOSED_REFERENCES);
+  const maxElements = Math.max(1, Math.min(MAX_EXPOSED_REFERENCES, options.maxElements ?? MAX_EXPOSED_REFERENCES));
+  const exposed = actionable.slice(0, maxElements);
   // Only refs actually shown in the latest observation are actionable. Raw
   // refs that persist will be re-added automatically on the next snapshot;
   // detached, renamed, hidden, or omitted elements become stale immediately.
@@ -380,11 +402,19 @@ export async function describeLocatorBlocker(page: Page, locator: Locator) {
       [rect.left + insetX, rect.bottom - insetY],
       [rect.right - insetX, rect.bottom - insetY],
     ];
+    const isShadowHost = (candidate: Element, target: Element) => {
+      let root = target.getRootNode();
+      while (root instanceof ShadowRoot) {
+        if (root.host === candidate) return true;
+        root = root.host.getRootNode();
+      }
+      return false;
+    };
     const hitTestable = points.some(([rawX, rawY]) => {
       const x = Math.max(0, Math.min(innerWidth - 1, rawX));
       const y = Math.max(0, Math.min(innerHeight - 1, rawY));
       const top = document.elementFromPoint(x, y);
-      return Boolean(top && (top === element || element.contains(top)));
+      return Boolean(top && (top === element || element.contains(top) || isShadowHost(top, element)));
     });
     if (blockingModal && !blockingModal.contains(element)) {
       return {
@@ -406,18 +436,23 @@ export async function describeLocatorBlocker(page: Page, locator: Locator) {
   }).catch(() => null);
   if (!blocker) return null;
 
-  const frameControls = [...(states.get(page)?.refs.values() ?? [])]
-    .map((stored) => stored.entry)
-    .filter((entry) => entry.frame && entry.actions.includes("click") && entry.states?.includes("in-viewport"))
-    .sort((left, right) => blockerPriority(right) - blockerPriority(left))
-    .slice(0, 5)
-    .map((entry) => `[${entry.ref}] ${entry.role} ${JSON.stringify(entry.name)}`);
+  const frameControls = blocker.source
+    ? [...(states.get(page)?.refs.values() ?? [])]
+      .map((stored) => stored.entry)
+      .filter((entry) => entry.frame && entry.actions.includes("click") && entry.states?.includes("in-viewport"))
+      .sort((left, right) => blockerPriority(right) - blockerPriority(left))
+      .slice(0, 5)
+      .map((entry) => `[${entry.ref}] ${entry.role} ${JSON.stringify(entry.name)}`)
+    : [];
   const identity = blocker.source || blocker.name || blocker.tag;
   return `Target is occluded by ${identity}. Do not retry it until the blocker is handled.`
     + (frameControls.length ? ` Available frame controls: ${frameControls.join("; ")}.` : "");
 }
 
 export async function blockedActionResult(page: Page, locator: Locator, action: string) {
+  // A blocker can only cover an element that currently exists. Let the
+  // action's own bounded auto-wait handle targets that may appear later.
+  if (await locator.count() === 0) return null;
   const blocker = await describeLocatorBlocker(page, locator);
   if (!blocker) return null;
   return {
@@ -462,6 +497,7 @@ function blockerPriority(entry: InteractiveReference) {
 
 function fallbackIdentityLocator(frame: Frame, entry: {
   tag: string;
+  role: string;
   id?: string;
   testId?: string;
   ariaLabel?: string;
@@ -479,6 +515,12 @@ function fallbackIdentityLocator(frame: Frame, entry: {
     : null;
   if (attribute) {
     return frame.locator(`${entry.tag}[${attribute[0]}=${JSON.stringify(attribute[1])}]`);
+  }
+  if (entry.role !== "interactive") {
+    return frame.getByRole(entry.role as Parameters<Frame["getByRole"]>[0], {
+      name: entry.name,
+      exact: false,
+    });
   }
   return frame.getByText(entry.name, { exact: true });
 }

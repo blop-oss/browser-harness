@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Page } from "playwright";
+import type { Page, Request } from "playwright";
 import { createAssertionTools } from "./tools/assertions.js";
 import { createBatchTool } from "./tools/batch.js";
 import { createExtractTools } from "./tools/extract.js";
@@ -13,12 +13,13 @@ import { createNavigationTools } from "./tools/navigation.js";
 import { createPageTools } from "./tools/page.js";
 import { createTabTools } from "./tools/tabs.js";
 import type { HarnessAction } from "./types.js";
-import type { BrowserToolContext, NativeToolBridge, NativeToolResult, FinishState } from "./tools/types.js";
+import type { BrowserToolContext, NativeToolBridge, NativeToolResult, FinishState, NetworkActivity } from "./tools/types.js";
 import { captureActionState, describeActionOutcome } from "./tools/action-outcome.js";
 
 const OUTCOME_TOOLS = new Set([
   "browser_goto", "browser_back", "browser_forward", "browser_reload",
   "browser_click", "browser_double_click", "browser_right_click", "browser_drag_and_drop",
+  "browser_click_at",
   "browser_type", "browser_press", "browser_clear", "browser_check", "browser_uncheck",
   "browser_select_option", "browser_upload_file",
 ]);
@@ -35,6 +36,26 @@ export async function createBrowserTools(
   // every tool reads `context.page` at execute time, so mutating `ref.page`
   // propagates to all of them on the next call.
   const ref: { page: Page } = { page: options.page };
+  const networkActivity = new WeakMap<Page, NetworkActivity>();
+  const activityFor = (page: Page) => {
+    let activity = networkActivity.get(page);
+    if (activity) return activity;
+    activity = { inflight: new Map(), lastActivity: Date.now() };
+    networkActivity.set(page, activity);
+    if (typeof page.on !== "function") return activity;
+    page.on("request", (request) => {
+      activity!.inflight.set(request, request.url());
+      activity!.lastActivity = Date.now();
+    });
+    const complete = (request: Request) => {
+      activity!.inflight.delete(request);
+      activity!.lastActivity = Date.now();
+    };
+    page.on("requestfinished", complete);
+    page.on("requestfailed", complete);
+    return activity;
+  };
+  activityFor(ref.page);
 
   const context: BrowserToolContext = {
     ...options,
@@ -43,15 +64,19 @@ export async function createBrowserTools(
     },
     set page(next: Page) {
       ref.page = next;
+      activityFor(next);
     },
     screenshotArtifacts: options.screenshotArtifacts ?? [],
     criticalPoints: options.criticalPoints ?? [],
     setActivePage: (next: Page) => {
       ref.page = next;
+      activityFor(next);
       options.setActivePage?.(next);
     },
     getActivePage: () => ref.page,
+    getNetworkActivity: () => activityFor(ref.page),
     record: async (name, input, fn): NativeToolResult => {
+      const startedAt = performance.now();
       const before = OUTCOME_TOOLS.has(name) ? await captureActionState(ref.page) : null;
       let result: Awaited<NativeToolResult>;
       try {
@@ -64,6 +89,7 @@ export async function createBrowserTools(
           output: message,
           metadata: { error: message },
           timestamp: new Date().toISOString(),
+          durationMs: elapsed(startedAt),
         };
         options.actions.push(action);
         options.onAction?.(action);
@@ -85,6 +111,7 @@ export async function createBrowserTools(
         output: result.content,
         metadata: result.metadata,
         timestamp: new Date().toISOString(),
+        durationMs: elapsed(startedAt),
       };
       // Attach a compact JPEG of the resulting page state so the host can show
       // a visual trail of each step. Prefer the live screencast frame already in
@@ -130,4 +157,8 @@ export async function createBrowserTools(
   // the finished list. Inner steps record their own actions, keeping the
   // visual trail and live progress stream identical to unbatched execution.
   return [...tools, createBatchTool(tools)];
+}
+
+function elapsed(startedAt: number) {
+  return Math.max(0, Number((performance.now() - startedAt).toFixed(1)));
 }
