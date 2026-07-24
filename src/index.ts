@@ -31,4 +31,12 @@ export {
   type PlaywrightContainerSession,
 } from "./session/playwright-container.js";
 
+export {
+  ensureCamoufoxContainer,
+  startCamoufoxContainer,
+  stopCamoufoxContainer,
+  type CamoufoxContainerOptions,
+  type CamoufoxContainerSession,
+} from "./session/camoufox-container.js";
+
 export { locateTarget, locateAllTargets, selectorFor, type BrowserTarget, targetParameterSchema } from "./tools/locators.js";

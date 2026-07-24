@@ -188,7 +188,7 @@ blop-browser install camoufox
 blop-browser --session research --browser camoufox open https://example.com
 ```
 
-Camoufox requires Node.js 20 or newer. Chromium remains the default and is the
+Camoufox requires Node.js 22 or newer. Chromium remains the default and is the
 better choice for deterministic testing of apps you control.
 
 ## TypeScript API
@@ -225,7 +225,10 @@ await browser.close();
 ```
 
 The public API also includes `NativeToolBridge`, `startScreencast`, structured
-target helpers, and Docker-backed Playwright sessions.
+target helpers, and warm Docker sessions for both Playwright Chromium and
+Camoufox. `startCamoufoxContainer()` builds the pinned image once, keeps the
+separate `blop-camoufox` server container warm, and returns an isolated browser
+connection for each caller.
 
 <details>
 <summary>Configuration</summary>
@@ -241,6 +244,9 @@ target helpers, and Docker-backed Playwright sessions.
 | `BLOP_BROWSER_CAMOUFOX_EXECUTABLE_PATH` | Auto-detect | Camoufox path |
 | `BLOP_BROWSER_IDLE_TIMEOUT_MS` | `1800000` | Daemon idle timeout |
 | `BLOP_BROWSER_RUNTIME_DIR` | `~/.blop-browser` | Private session state |
+| `BLOP_CAMOUFOX_CONTAINER` | `blop-camoufox` | Warm Camoufox server container name |
+| `BLOP_CAMOUFOX_IMAGE` | Version-derived local image | Prebuilt Camoufox server image override |
+| `BLOP_CAMOUFOX_NETWORK` | `BLOP_PLAYWRIGHT_NETWORK` | Shared Docker network for the caller and Camoufox |
 
 </details>
 
