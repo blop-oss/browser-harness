@@ -1,6 +1,6 @@
 {
   "name": "@blopai/browser-harness",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Playwright browser harness for AI agents: controlled native tools, sessions, screencast, and optional Docker browser sandbox.",
   "license": "MIT",
   "type": "module",
@@ -51,7 +51,7 @@
   },
   "dependencies": {
     "camoufox-js": "0.11.1",
-    "playwright": "^1.59.1"
+    "playwright": "^1.61.1"
   },
   "devDependencies": {
     "@types/node": "^22.15.18",
